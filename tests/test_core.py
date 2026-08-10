@@ -641,5 +641,42 @@ class TestUpdateCore(MdocTestCase):
         self.assertEqual(path.read_bytes(), before)  # 文件字节未动
 
 
+class TestInstallSkill(MdocTestCase):
+    """`mdoc install-skill` 的 core 层：模板安装到技能目录（幂等 / force 覆盖）。"""
+
+    def test_write_skill_template_force(self):
+        lib = Path(self._tmp.name) / "lib"
+        lib.mkdir()
+        self.assertEqual(core.write_skill_template(lib), "written")
+        # 已有内容时默认不覆盖
+        (lib / "SKILL.md").write_text("旧模板", encoding="utf-8")
+        self.assertEqual(core.write_skill_template(lib), "exists")
+        self.assertEqual((lib / "SKILL.md").read_text(encoding="utf-8"), "旧模板")
+        # force 覆盖为包内最新
+        self.assertEqual(core.write_skill_template(lib, force=True), "written")
+        self.assertIn("name: mdoc", (lib / "SKILL.md").read_text(encoding="utf-8"))
+
+    def test_install_skill_written_and_idempotent(self):
+        target = Path(self._tmp.name) / "skills" / "mdoc"
+        r = core.install_skill(skill_dir=target)
+        self.assertEqual(r["status"], "written")
+        self.assertTrue((target / "SKILL.md").is_file())
+        # 幂等：不覆盖已有（改一下再装，内容保持）
+        (target / "SKILL.md").write_text("我的定制", encoding="utf-8")
+        r2 = core.install_skill(skill_dir=target)
+        self.assertEqual(r2["status"], "exists")
+        self.assertEqual((target / "SKILL.md").read_text(encoding="utf-8"), "我的定制")
+        # force 覆盖
+        r3 = core.install_skill(skill_dir=target, force=True)
+        self.assertEqual(r3["status"], "written")
+        self.assertIn("name: mdoc", (target / "SKILL.md").read_text(encoding="utf-8"))
+
+    def test_default_skill_dir(self):
+        self.assertEqual(
+            core.default_skill_dir(),
+            Path(os.path.expanduser("~")) / ".claude" / "skills" / "mdoc",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

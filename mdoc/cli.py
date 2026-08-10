@@ -15,6 +15,7 @@ mdoc CLI —— core 的薄壳。确定性操作全在 core，本模块只做参
   mdoc delete <refname> --yes [--json]   删文件 + 同步索引
   mdoc slugify <标题>                     kebab-case
   mdoc validate <refname> [--style] [--json]  确定性校验
+  mdoc install-skill [--skill-dir DIR] [--force]  安装 skill 到 Claude Code 技能目录
 """
 
 import argparse
@@ -70,7 +71,25 @@ def cmd_init(args):
         print("skill 模板：未随包提供（跳过）")
     else:
         print(f"skill 模板：{res['store_dir']}/SKILL.md（"
-              + ("写入，可复制到 Claude Code 技能目录" if res["skill_template"] == "written" else "已存在，未覆盖") + "）")
+              + ("写入；用 `mdoc install-skill` 装到 Claude Code 技能目录" if res["skill_template"] == "written" else "已存在，未覆盖") + "）")
+    return 0
+
+
+def cmd_install_skill(args):
+    res = core.install_skill(skill_dir=args.skill_dir, force=args.force)
+    if args.json:
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        return 0 if res["status"] != "absent" else 1
+    if res["status"] == "absent":
+        print("错误：包内未携带 skill 模板（skill_template/SKILL.md 缺失）", file=sys.stderr)
+        return 1
+    target = f"{res['skill_dir']}/SKILL.md"
+    if res["status"] == "exists":
+        print(f"已存在，未覆盖：{target}")
+        print("如需更新为最新模板，用 --force。")
+    else:
+        print(f"已写入：{target}")
+    print("重启 Claude Code（或 /reload）后即可用 /mdoc 斜杠命令。")
     return 0
 
 
@@ -358,6 +377,12 @@ def build_parser():
     sp.add_argument("refname")
     sp.add_argument("--style", action="store_true", help="附加内容风格校验（§1.5）")
     sp.set_defaults(func=cmd_validate)
+
+    sp = sub.add_parser("install-skill", help="安装 /mdoc skill 到 Claude Code 技能目录（默认 ~/.claude/skills/mdoc/）")
+    add_json(sp)
+    sp.add_argument("--skill-dir", help="目标技能目录（默认 ~/.claude/skills/mdoc/）")
+    sp.add_argument("--force", action="store_true", help="已存在时覆盖为最新模板")
+    sp.set_defaults(func=cmd_install_skill)
 
     sp = sub.add_parser("create", help="从 doc.json 创建文档（校验 → 落盘 → 索引同步）")
     add_store(sp)

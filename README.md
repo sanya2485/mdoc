@@ -32,7 +32,11 @@ mdoc init ~/mdoc-docs
 
 **③ 启用斜杠命令**
 
-把 `~/mdoc-docs/SKILL.md` 复制到 Claude Code 的技能目录（用户级 `skills/` 下建 `mdoc/` 子目录），重启 Claude Code（或 `/reload`），就能用 `/mdoc` 了。
+```bash
+mdoc install-skill
+```
+
+这一步把 skill 模板安装到 Claude Code 的技能目录 `~/.claude/skills/mdoc/`。重启 Claude Code（或 `/reload`）后就能用 `/mdoc` 了。以后想更新到最新模板，`mdoc install-skill --force` 即可。
 
 > 只想用终端命令、不想装斜杠命令？跳过第 ③ 步，`cd ~/mdoc-docs` 后直接 `mdoc list` / `mdoc search xxx`。
 
@@ -42,7 +46,7 @@ mdoc init ~/mdoc-docs
 请帮我安装并配置 /mdoc（修复方案文档管理系统）：
 1. 执行 `git clone https://github.com/sanya2485/mdoc.git && cd mdoc && pip install -e .` 安装 mdoc 命令；
 2. 执行 `mdoc init <我的文档目录>` 建库——自动创建文档目录、索引、配置 .mdoc.toml，并写入 skill 模板 SKILL.md；
-3. 把 <文档目录>/SKILL.md 复制到 Claude Code 可发现的技能目录（用户级 skills/ 下建 mdoc/ 子目录），并告诉我重启 Claude Code（或 /reload）让技能生效。
+3. 执行 `mdoc install-skill` 把 skill 安装到 Claude Code 技能目录（~/.claude/skills/mdoc/），并告诉我重启 Claude Code（或 /reload）让技能生效。
 完成后运行 `mdoc --help` 验证，把命令输出和文档库目录告诉我。
 ```
 
@@ -60,7 +64,7 @@ mdoc init ~/mdoc-docs
 | `/mdoc -d <参考名>` | 删除文档 |
 | `/mdoc --help` | 命令速查 |
 
-不装斜杠命令也能用，底层 `mdoc` 命令：`init`（建库）、`list`（列表）、`search`（搜索）、`get`（看全文）、`create` / `update` / `delete`（增删改）、`validate`（校验）、`config`（看配置）。
+不装斜杠命令也能用，底层 `mdoc` 命令：`init`（建库）、`install-skill`（装斜杠命令到 Claude Code）、`list`（列表）、`search`（搜索）、`get`（看全文）、`create` / `update` / `delete`（增删改）、`validate`（校验）、`config`（看配置）。
 
 > 写操作都是「先预览、你确认、再落盘」；删整篇还要你输入文档名二次确认，不会误删。
 

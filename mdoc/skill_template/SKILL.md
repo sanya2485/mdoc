@@ -20,7 +20,7 @@ tools: Bash, Read
 mdoc init <你的文档目录>
 ```
 
-建库会创建目录 + 索引 + 库本地配置 `.mdoc.toml`，并把本 skill 模板写入 `<目录>/SKILL.md`。之后把这份 SKILL.md 放到 Claude Code 可发现的技能目录（用户级 `skills/` 下建 `mdoc/` 子目录，或参考 Claude Code 文档的本机技能位置），即可用下面的斜杠命令。
+建库会创建目录 + 索引 + 库本地配置 `.mdoc.toml`，并把本 skill 模板写入 `<目录>/SKILL.md`。之后跑 `mdoc install-skill` 把 skill 装到 Claude Code 技能目录，重启（或 `/reload`）即可用下面的斜杠命令。
 
 **不想手动操作？把下面这段复制给 AI，让它帮你完成建库与技能安装：**
 
@@ -28,7 +28,7 @@ mdoc init <你的文档目录>
 请帮我安装并配置 /mdoc（修复方案文档管理系统）：
 1. 执行 `git clone https://github.com/sanya2485/mdoc.git && cd mdoc && pip install -e .` 安装 mdoc 命令；
 2. 执行 `mdoc init <我的文档目录>` 建库——自动创建目录、索引、库本地配置 .mdoc.toml，并写入 skill 模板 SKILL.md；
-3. 把 <文档目录>/SKILL.md 复制到 Claude Code 可发现的技能目录（用户级 skills/ 下建 mdoc/ 子目录），并告诉我重启 Claude Code（或 /reload）让技能生效。
+3. 执行 `mdoc install-skill` 把 skill 安装到 Claude Code 技能目录，并告诉我重启 Claude Code（或 /reload）让技能生效。
 完成后运行 `mdoc --help` 验证，把命令输出和文档库目录告诉我。
 ```
 

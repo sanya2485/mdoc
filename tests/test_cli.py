@@ -339,5 +339,35 @@ class TestCliCreateUpdate(CliTestCase):
         self.assertEqual((self.store / "MEMORY.md").read_text(encoding="utf-8"), before)
 
 
+class TestCliInstallSkill(CliTestCase):
+    def test_install_skill_written(self):
+        target = Path(self._tmp.name) / "skills" / "mdoc"
+        r = self.run_cli("install-skill", "--skill-dir", str(target))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("已写入", r.stdout)
+        self.assertTrue((target / "SKILL.md").is_file())
+
+    def test_install_skill_exists_and_force(self):
+        target = Path(self._tmp.name) / "skills" / "mdoc"
+        target.mkdir(parents=True)
+        (target / "SKILL.md").write_text("我的定制", encoding="utf-8")
+        r = self.run_cli("install-skill", "--skill-dir", str(target))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("已存在，未覆盖", r.stdout)
+        self.assertEqual((target / "SKILL.md").read_text(encoding="utf-8"), "我的定制")
+        r2 = self.run_cli("install-skill", "--skill-dir", str(target), "--force")
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertIn("已写入", r2.stdout)
+        self.assertIn("name: mdoc", (target / "SKILL.md").read_text(encoding="utf-8"))
+
+    def test_install_skill_json(self):
+        target = Path(self._tmp.name) / "skills" / "mdoc"
+        r = self.run_cli("install-skill", "--skill-dir", str(target), "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        obj = json.loads(r.stdout)
+        self.assertEqual(obj["status"], "written")
+        self.assertEqual(obj["skill_dir"], str(target))
+
+
 if __name__ == "__main__":
     unittest.main()

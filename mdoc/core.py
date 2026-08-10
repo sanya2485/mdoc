@@ -841,16 +841,16 @@ default = "partial"
 """
 
 
-def write_skill_template(store_dir) -> str:
-    """把包内 skill_template/SKILL.md 写入 <store_dir>/SKILL.md（仅当不存在）。
+def write_skill_template(store_dir, force=False) -> str:
+    """把包内 skill_template/SKILL.md 写入 <store_dir>/SKILL.md（默认仅当不存在）。
 
     返回 written | exists | absent。模板随 wheel 分发（package-data），
-    源码树与安装态均可通过 __file__ 定位。幂等：不覆盖用户改动。"""
+    源码树与安装态均可通过 __file__ 定位。幂等：不覆盖用户改动；force=True 覆盖为最新。"""
     src = Path(__file__).parent / "skill_template" / "SKILL.md"
     if not src.is_file():
         return "absent"
     dst = Path(store_dir) / "SKILL.md"
-    if dst.exists():
+    if dst.exists() and not force:
         return "exists"
     dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
     return "written"
@@ -878,3 +878,20 @@ def init_store(store_dir, index_file="INDEX.md") -> dict:
         "config": str(cfg_path),
         "skill_template": write_skill_template(d),
     }
+
+
+def default_skill_dir() -> Path:
+    """Claude Code 用户级 skill 目录：~/.claude/skills/<skill_name>/（本包名为 mdoc）。
+
+    供 `mdoc install-skill` 定位；用户可用 --skill-dir 覆盖到任意位置。"""
+    return Path(os.path.expanduser("~")) / ".claude" / "skills" / "mdoc"
+
+
+def install_skill(skill_dir=None, force=False) -> dict:
+    """把包内 skill 模板安装到 Claude Code 技能目录（默认 ~/.claude/skills/mdoc/）。
+
+    返回 {skill_dir, status: written|exists|absent}；absent 表示包内模板缺失。
+    目标目录不存在则创建；已存在模板默认不覆盖（force=True 覆盖为最新）。"""
+    d = Path(skill_dir) if skill_dir else default_skill_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    return {"skill_dir": str(d), "status": write_skill_template(d, force=force)}
