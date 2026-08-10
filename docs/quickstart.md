@@ -29,6 +29,20 @@ mdoc init ~/mdoc-docs
 
 > 不想要斜杠命令，只想在终端用 `mdoc` 命令也一样，见 §5。
 
+### 复制给 AI 的安装提示词
+
+不想手动敲命令的话，把下面这段直接复制给 AI（Claude 等），让它帮你完成上面的三步——装命令 → 建库 → 放技能：
+
+```text
+请帮我安装并配置 /mdoc（修复方案文档管理系统）：
+1. 执行 `pip install dist/mdoc-0.1.0-py3-none-any.whl` 安装 mdoc 命令；
+2. 执行 `mdoc init <我的文档目录>` 建库——自动创建目录、索引、库本地配置 .mdoc.toml，并写入 skill 模板 SKILL.md；
+3. 把 <文档目录>/SKILL.md 复制到 Claude Code 可发现的技能目录（用户级 skills/ 下建 mdoc/ 子目录），并告诉我重启 Claude Code（或 /reload）让技能生效。
+完成后运行 `mdoc --help` 验证，把命令输出和文档库目录告诉我。
+```
+
+> 提示词里的 `<我的文档目录>` 换成你自己的路径；wheel 在 `dist/` 下（还没有就运行 `python -m build --wheel` 构建）。
+
 ## 3. 一条命令一次搜索
 
 在库目录内（`cd ~/mdoc-docs`）运行，`mdoc` 自动发现该库，**不用配任何环境变量**。

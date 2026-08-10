@@ -22,6 +22,16 @@ mdoc init <你的文档目录>
 
 建库会创建目录 + 索引 + 库本地配置 `.mdoc.toml`，并把本 skill 模板写入 `<目录>/SKILL.md`。之后把这份 SKILL.md 放到 Claude Code 可发现的技能目录（用户级 `skills/` 下建 `mdoc/` 子目录，或参考 Claude Code 文档的本机技能位置），即可用下面的斜杠命令。
 
+**不想手动操作？把下面这段复制给 AI，让它帮你完成建库与技能安装：**
+
+```text
+请帮我安装并配置 /mdoc（修复方案文档管理系统）：
+1. 执行 `pip install dist/mdoc-0.1.0-py3-none-any.whl` 安装 mdoc 命令；
+2. 执行 `mdoc init <我的文档目录>` 建库——自动创建目录、索引、库本地配置 .mdoc.toml，并写入 skill 模板 SKILL.md；
+3. 把 <文档目录>/SKILL.md 复制到 Claude Code 可发现的技能目录（用户级 skills/ 下建 mdoc/ 子目录），并告诉我重启 Claude Code（或 /reload）让技能生效。
+完成后运行 `mdoc --help` 验证，把命令输出和文档库目录告诉我。
+```
+
 **库路径解析优先级**：命令行 `--store <dir>` > 环境变量 `MDOC_DIR` > 库本地配置 `<dir>/.mdoc.toml` > 用户配置 `~/.mdoc.toml`（`$MDOC_CONFIG` 可换）> 当前目录向上探测 `.mdoc.toml`。
 
 - 在库目录内运行命令时，`mdoc` 自动发现该库（无需任何配置）。
