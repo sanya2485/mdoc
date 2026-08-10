@@ -86,9 +86,17 @@ mdoc install-skill
 
   真实账密由管理员线下分发（本仓库 `secrets/` 存一份，`.gitignore` 排除，**不入 git**）；文档里一律用 `<PASSWORD>` 占位。
 
-- **JSON 中间格式**：`create` / `update` 通过 JSON 交互（skill 组装、CLI 校验），`--dry-run` 先预览不落盘。完整说明见 [快速入门](docs/quickstart.md) 与设计文档 `mdoc-mcp-refactor-plan.md`。
+  **不想手动敲？维护者快速开始，把这段复制给 AI**（`<USER>/<PASSWORD>` 换成实际账密）：
 
-- **`install-skill` 子命令**：把包内 `skill_template/SKILL.md` 装到 Claude Code 技能目录，一键补上「pip 装完没有 /mdoc」的缺口。默认装到 `~/.claude/skills/mdoc/`；用 `--skill-dir <目录>` 改目标，`--force` 覆盖已有文件，`--json` 结构化输出（`{"skill_dir": ..., "status": "written|exists|absent"}`）。更新模板后重建 wheel 上传，用户跑 `mdoc install-skill --force` 即可升级。
+  ```text
+  请帮我安装并配置 /mdoc（修复方案文档管理系统）：
+  1. 执行 `pip install --index-url "https://<USER>:<PASSWORD>@www.sanyablog.cn/pypi/simple/" mdoc` 安装 mdoc 命令；
+  2. 执行 `mdoc init <我的文档目录>` 建库——自动创建文档目录、索引、配置 .mdoc.toml，并写入 skill 模板 SKILL.md；
+  3. 执行 `mdoc install-skill` 把 skill 安装到 Claude Code 技能目录，并告诉我重启 Claude Code（或 /reload）让技能生效。
+  完成后运行 `mdoc --help` 验证，把命令输出和文档库目录告诉我。
+  ```
+
+- **JSON 中间格式**：`create` / `update` 通过 JSON 交互（skill 组装、CLI 校验），`--dry-run` 先预览不落盘。完整说明见 [快速入门](docs/quickstart.md) 与设计文档 `mdoc-mcp-refactor-plan.md`。
 
 - **配置解析优先级**：内置默认 < 用户配置 `~/.mdoc.toml` < 库本地配置 `<store>/.mdoc.toml` < `MDOC_DIR` / `--store`。
 
