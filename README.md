@@ -30,9 +30,11 @@ mdoc validate <refname> --style
 2. `mdoc init <你的文档目录>` 建库——目录 + 索引 + `.mdoc.toml` + **通用 skill 模板 `SKILL.md`** 一次到位。
 3. 把 `<目录>/SKILL.md` 复制到 Claude Code 可发现的技能目录（用户级 `skills/` 下建 `mdoc/` 子目录），即可用 `/mdoc` 斜杠命令管理文档。之后在库目录内运行 `mdoc` 命令即自动解析到该库，无需任何配置。
 
-## 私有 PyPI 分发（可选）
+## 作者分发渠道（私有 PyPI，非公开）
 
-mdoc 也发布在私有 index（`https://www.sanyablog.cn/pypi/simple/`，pypiserver + htpasswd 认证，全程 TLS）。有访问账密时，目标机配好 index 即可 `pip install mdoc`，不用传 wheel 文件：
+> 开源公众**无需**此渠道：`git clone` 后用 `pip install -e .`（或 `python -m build` 自建 wheel）即可。私有 index 是**维护者多机分发**用的（认证防陌生访问、减流量），不对外开放注册。
+
+维护者/协作者有账密时，目标机配好 index 即可 `pip install mdoc`，不用传 wheel 文件：
 
 ```bash
 # 目标机（每台一次）：<USER>/<PASSWORD> 换成实际账密
@@ -45,7 +47,7 @@ pip install --index-url "https://<USER>:<PASSWORD>@www.sanyablog.cn/pypi/simple/
 twine upload --repository-url https://www.sanyablog.cn/pypi/ dist/*.whl
 ```
 
-> 真实账密由管理员线下分发（本仓库 `secrets/` 存一份，已 `.gitignore`）；文档与仓库一律用 `<USER>/<PASSWORD>` 占位，绝不入 git。
+> 真实账密由管理员线下分发（本仓库 `secrets/` 存一份，已 `.gitignore`，**不入 git**）；文档与仓库一律用 `<USER>/<PASSWORD>` 占位。
 
 ## 命令
 

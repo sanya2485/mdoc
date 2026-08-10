@@ -43,13 +43,7 @@ mdoc init ~/mdoc-docs
 
 > 提示词里的 `<我的文档目录>` 换成你自己的路径；wheel 在 `dist/` 下（还没有就运行 `python -m build --wheel` 构建）。
 
-> 💡 有私有 PyPI 访问权限的话，① 可以免传 wheel 文件一行装：
->
-> ```bash
-> pip install --index-url "https://<USER>:<PASSWORD>@www.sanyablog.cn/pypi/simple/" mdoc
-> ```
->
-> 私有 index 由 pypiserver + htpasswd 认证（全程 TLS），`<USER>/<PASSWORD>` 找管理员要。维护者发布新版本用 `twine upload --repository-url https://www.sanyablog.cn/pypi/ dist/*.whl`。详见 [README「私有 PyPI 分发」](../README.md)。
+> 💡 **维护者自用渠道**：作者在私有 index（`https://www.sanyablog.cn/pypi/simple/`，pypiserver + htpasswd 认证）做多机分发，不对外开放注册。一般用户请用 `git clone` + `pip install -e .` 或自建 wheel，无需申请账密。详见 [README「作者分发渠道」](../README.md)。
 
 ## 3. 一条命令一次搜索
 
