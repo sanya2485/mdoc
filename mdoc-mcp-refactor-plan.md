@@ -1,7 +1,7 @@
 # /mdoc 脚本化改造方案（定稿：单 core + CLI）
 
 > 目标：把 /mdoc 的确定性操作下沉为 **core + CLI**，打包分发，供他人（Claude Code 用户）安装到各自机器、管理各自的修复方案文档。
-> 状态：**方案已定稿**（2026-08-10）· 改造进行中（阶段 1 配置层已完成，内容风格系统已落 core）
+> 状态：**方案已定稿**（2026-08-10）· 改造进行中（阶段 1 配置层 ✅；阶段 2 CLI 骨架 ✅，已 code-review）
 > 关键取舍：CLI+skills vs MCP 的讨论结论是「**单 core + CLI，MCP 后置**」
 
 ---
@@ -103,6 +103,8 @@
 
 **skill 侧的 create/update 流程**：LLM 从对话提取 → 组装 `doc.json`（sections + metadata）→ `mdoc create --stdin --dry-run` 出预览 → 用户确认 → 去掉 `--dry-run` 落盘。**所有写操作二次确认在 skill 交互层**，CLI 的 `--dry-run` 保证预览不落盘。
 
+**validate 确定性边界**（阶段 2 定稿）：frontmatter 完整性 + `[[wikilink]]` 可达性 + `--style` 风格校验进 CLI；"路径/命令存在性"依赖读者机器的真实环境、无法在任意库上确定性判定，归 doc-validator LLM 语义审查（Tier 2），不进 CLI。
+
 **配置解析优先级**：命令行 flag > 环境变量 `MDOC_DIR` > 配置文件（`mdoc init` 生成）。
 
 ---
@@ -140,6 +142,8 @@
 - SKILL.md 命令协议改为"先跑 `mdoc` 命令、再展示"。
 - **验收**：`mdoc search nginx` 与预期一致；删除流程走 `mdoc delete` 后索引同步正确。
 
+**✅ 已完成**（2026-08-10，含 code-review 修复）：包落在 `Desktop/mdoc/`（`pyproject.toml` + `mdoc/{core,cli}.py` + `tests/`，53 单测零依赖全绿）。命令全带 `--json`；搜索含 §1.2 过滤与确定性排序；`delete` 走 `core.delete_doc`（删文件 + 索引同步，满足 §3"core 唯一数据写入方"）；`validate --style` 调 `check_style_violations`；配置解析支持库本地 `.mdoc.toml`。SKILL.md 命令协议切换与 skill 迁移到阶段 4（打包安装后，避免改坏现网技能）。
+
 ### 阶段 3 — create/update 走 JSON 中间格式
 - `mdoc create/update --stdin --dry-run`，LLM 提取 → JSON → 落盘。
 - **验收**：文档结构 100% 符合 spec，索引与文件同步无误。
@@ -158,7 +162,7 @@
 | # | 决策 | 现状 |
 |---|------|------|
 | 1 | 分发形态 | 已定：pip 包 + skill 模板 |
-| 2 | 索引文件名 | 待定：公共默认（如 `INDEX.md`）vs 个人绑定 MEMORY.md——建议 core 支持可配置索引名 |
+| 2 | 索引文件名 | ✅ 已解决（阶段 2）：core 支持可配置 `index_file`；`mdoc init` 公共默认 `INDEX.md`，个人配置保留 `MEMORY.md` |
 | 3 | 是否发布到 PyPI | 待定：先本地打包，验证后再决定 |
 | 4 | skill 模板的 skill 命名/命令协议 | 待定：阶段 4 时细化 |
 
@@ -201,4 +205,11 @@
 - 运行 `list.py` → `TOTAL=10` ✅；`list.py --names` → 10 个参考名 ✅
 - 核对 `mdoc-skill-redesign.md`（project）与 `windows-environment.md` → 正确排除 ✅
 - 模拟搜索 "nginx" → 索引+正文双路径命中 ✅；搜 "微信" → 命中非 mdoc 文档（暴露 §2.2 过滤缺口）⚠️
-- 检查 `coze-chat-theme-zindex.md` frontmatter → 缺 `created` ⚠️
+- 检查 `coze-chat-theme-zindex.md` frontmatter → 缺 `created` ⚠️（已补 `created: 2026-08-06`）
+
+### 阶段 2 验证记录（2026-08-10）
+
+- 53/53 单测全绿（`unittest`，零依赖；覆盖 config/search/索引同步/slugify/style/validate/init + CLI 端到端）
+- 真实库回归：`mdoc list` TOTAL=10 不变；`mdoc search nginx` 命中 7 篇（含 §1.2 过滤，非 mdoc 不再混入）；desc 引号已剥离
+- 临时库端到端：init → search → `validate --style`（sanitized 路径 + 密钥泄漏检出）→ `delete --yes` 索引同步 ✅
+- code-review（两轴并行）：Standards 1 硬违反（delete 在 CLI 直接 unlink，绕过 core 唯一数据写入方）→ 已下沉 `core.delete_doc`；Spec 3 处缺口 → 已修（`init --json` / `init_store` 幂等不覆盖 / README 越界 `create` 与 `--store` 声明不符）；若干判断项（`_known_docs` 消解别名重复、索引改写助手、单版本源）已顺手落实

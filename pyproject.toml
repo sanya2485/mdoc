@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mdoc"
-version = "0.1.0"
+dynamic = ["version"]
 description = "修复方案文档管理系统 —— core + CLI（确定性规则锁进代码）"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,3 +15,6 @@ mdoc = "mdoc.cli:main"
 
 [tool.setuptools]
 packages = ["mdoc"]
+
+[tool.setuptools.dynamic]
+version = { attr = "mdoc.__version__" }

@@ -52,6 +52,15 @@ class TestCliCommands(CliTestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("已初始化", r.stdout)
 
+    def test_init_json(self):
+        target = Path(self._tmp.name) / "newstore"
+        r = self.run_cli("init", str(target), "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        obj = json.loads(r.stdout)
+        self.assertEqual(obj["store_dir"], str(target))
+        self.assertTrue(obj["index_created"])
+        self.assertTrue(obj["config_written"])
+
     def test_list_json(self):
         self.write_doc("a", created="2026-08-02")
         self.write_doc("b", type="project", created="2026-08-03")

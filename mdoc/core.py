@@ -100,6 +100,14 @@ _FRONTMATTER_RE = re.compile(r"\A\s*---\s*\n(.*?)\n---", re.DOTALL)
 _SCALAR_KEYS = ("type", "name", "description", "created", "blog_ready", "style")
 
 
+def _strip_yaml_quotes(v):
+    """剥掉标量值首尾成对的引号（YAML 里含 `:` 的描述会被引号包裹）。"""
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        return v[1:-1]
+    return v
+
+
 def parse_frontmatter(text) -> dict:
     """提取 frontmatter 标量字段（容忍 YAML 缩进 / 内联 / 嵌套 metadata 块）。"""
     m = _FRONTMATTER_RE.match(text)
@@ -111,7 +119,7 @@ def parse_frontmatter(text) -> dict:
         if mm:
             key, val = mm.group(1), mm.group(2)
             if key in _SCALAR_KEYS:
-                fields[key] = val
+                fields[key] = _strip_yaml_quotes(val)
     return fields
 
 
@@ -141,7 +149,7 @@ def load_docs(cfg) -> list:
             continue
         docs.append(
             {
-                "name": fm.get("name") or fn[:-3],
+                "name": _display_name(fm, fn),
                 "desc": fm.get("description") or "",
                 "created": fm.get("created") or "0000-00-00",
                 "mtime": time.strftime(
@@ -154,15 +162,24 @@ def load_docs(cfg) -> list:
     return docs
 
 
-def resolve_ref(cfg, refname):
-    """refname → 文件名：文件名匹配优先，其次参考名（均不区分大小写）。未找到返回 None。"""
-    target = refname.strip().lower()
+def _display_name(fm, file):
+    """文档显示名：frontmatter name 优先，缺省用文件名（去 .md）。"""
+    return fm.get("name") or file[:-3]
+
+
+def _known_docs(cfg) -> dict:
+    """参考名 / 文件名 / 去后缀名 三类别名 → 文件名的映射（resolve_ref 与 wikilink 校验共用）。"""
+    known = {}
     for d in load_docs(cfg):
-        if d["file"].lower() == target or d["file"][:-3].lower() == target:
-            return d["file"]
-        if d["name"].lower() == target:
-            return d["file"]
-    return None
+        known[d["name"].lower()] = d["file"]
+        known[d["file"].lower()] = d["file"]
+        known[d["file"][:-3].lower()] = d["file"]
+    return known
+
+
+def resolve_ref(cfg, refname):
+    """refname → 文件名：文件名 / 参考名（均不区分大小写）。未找到返回 None。"""
+    return _known_docs(cfg).get(refname.strip().lower())
 
 
 def read_doc(cfg, refname) -> dict:
@@ -173,7 +190,15 @@ def read_doc(cfg, refname) -> dict:
     path = Path(cfg["store_dir"]) / file
     text = path.read_text(encoding="utf-8")
     fm = parse_frontmatter(text)
-    return {"file": file, "name": fm.get("name") or file[:-3], "fm": fm, "text": text, "path": str(path)}
+    return {"file": file, "name": _display_name(fm, file), "fm": fm, "text": text, "path": str(path)}
+
+
+def delete_doc(cfg, refname) -> dict:
+    """删除单篇并同步索引（core 内完成，保持一致性）。返回 {deleted, name}；未找到抛 FileNotFoundError。"""
+    doc = read_doc(cfg, refname)
+    Path(doc["path"]).unlink()
+    remove_index_entry(cfg, doc["file"])
+    return {"deleted": doc["file"], "name": doc["name"]}
 
 
 # ---------------------------------------------------------------------------
@@ -202,57 +227,80 @@ def read_index(cfg) -> list:
     return entries
 
 
-def add_index_entry(cfg, title, file, desc=""):
-    """追加/替换一条索引行（按 file 去重），保留其它行。"""
-    idx = Path(cfg["store_dir"]) / cfg["index_file"]
+def _index_line(title, file, desc=""):
     line = f"- [{title}]({file})"
     if desc:
         line += f" — {desc}"
-    out = []
-    replaced = False
-    for ln in (_read_index_lines(cfg) if idx.is_file() else []):
+    return line
+
+
+def _rewrite_index(cfg, rewrite):
+    """读取索引全部行；对每个索引行调用 rewrite(line, match) -> 新行 或 None(删除)。
+    非索引行原样保留。返回 (改写后的行列表, 是否改动)。"""
+    idx = Path(cfg["store_dir"]) / cfg["index_file"]
+    raw = idx.read_text(encoding="utf-8").splitlines() if idx.is_file() else []
+    out, changed = [], False
+    for ln in raw:
         m = _INDEX_LINE_RE.match(ln)
-        if m and m.group(2) == file:
-            out.append(line)
-            replaced = True
+        if m is None:
+            out.append(ln)
+            continue
+        r = rewrite(ln, m)
+        if r is None:
+            changed = True
+        elif r != ln:
+            out.append(r)
+            changed = True
         else:
             out.append(ln)
-    if not replaced:
-        out.append(line)
-    idx.write_text("\n".join(out) + "\n", encoding="utf-8")
+    return out, changed
+
+
+def _write_index(idx, out, changed):
+    if changed or not idx.is_file():
+        idx.write_text("\n".join(out) + ("\n" if out else ""), encoding="utf-8")
+
+
+def add_index_entry(cfg, title, file, desc=""):
+    """追加/替换一条索引行（按 file 去重），保留其它行。"""
+    idx = Path(cfg["store_dir"]) / cfg["index_file"]
+    out, changed = _rewrite_index(
+        cfg, lambda ln, m: _index_line(title, file, desc) if m.group(2) == file else ln
+    )
+    if not any(
+        _INDEX_LINE_RE.match(ln) and _INDEX_LINE_RE.match(ln).group(2) == file
+        for ln in out
+    ):
+        out.append(_index_line(title, file, desc))
+        changed = True
+    _write_index(idx, out, changed)
 
 
 def remove_index_entry(cfg, file):
     """删除指向该文件的索引行，保留其它行。"""
+    if not Path(cfg["store_dir"]).is_dir():
+        return
     idx = Path(cfg["store_dir"]) / cfg["index_file"]
     if not idx.is_file():
         return
-    out = []
-    changed = False
-    for ln in idx.read_text(encoding="utf-8").splitlines():
-        m = _INDEX_LINE_RE.match(ln)
-        if m and m.group(2) == file:
-            changed = True
-            continue
-        out.append(ln)
-    if changed:
-        idx.write_text("\n".join(out) + ("\n" if out else ""), encoding="utf-8")
+    out, changed = _rewrite_index(cfg, lambda ln, m: None if m.group(2) == file else ln)
+    _write_index(idx, out, changed)
 
 
 # ---------------------------------------------------------------------------
 # 搜索（§2.2：索引 + frontmatter + 正文，含 §1.2 过滤）
 # ---------------------------------------------------------------------------
 
-def _match(d, title, kw, text):
+def _match(d, index_title, kw, text):
     """确定性匹配得分：name 精确 > name 包含 > desc > 索引标题 > 正文。返回 (score, 命中位置)。"""
     name = d["name"].lower()
     desc = d["desc"].lower()
-    title = title.lower()
+    index_title = index_title.lower()
     if kw in name:
         return (201 if kw == name else 200), "name"
     if kw in desc:
         return 160, "desc"
-    if kw in title:
+    if kw in index_title:
         return 120, "title"
     if kw in text.lower():
         return 80, "body"
@@ -396,11 +444,7 @@ def validate_doc(cfg, refname, check_style=True) -> dict:
         issues.append({"type": "frontmatter", "msg": f"type 应为 {cfg['reference_type']}"})
     if not fm.get("created"):
         issues.append({"type": "frontmatter", "msg": "缺 created 字段"})
-    known = {}  # 参考名 / 文件名均可作为 [[wikilink]] 目标
-    for d in load_docs(cfg):
-        known[d["name"].lower()] = d["file"]
-        known[d["file"].lower()] = d["file"]
-        known[d["file"][:-3].lower()] = d["file"]
+    known = _known_docs(cfg)  # 参考名 / 文件名均可作为 [[wikilink]] 目标
     for link in _WIKILINK_RE.findall(doc["text"]):
         if link.lower() not in known:
             issues.append({"type": "wikilink", "msg": f"[[{link}]] 未指向现有文档"})
@@ -433,7 +477,7 @@ default = "partial"
 
 
 def init_store(store_dir, index_file="INDEX.md") -> dict:
-    """建库：创建目录 + 索引 + 库本地配置。幂等（已存在则跳过）。"""
+    """建库：创建目录 + 索引 + 库本地配置。幂等（已存在则跳过，不覆盖用户改动）。"""
     d = Path(store_dir)
     d.mkdir(parents=True, exist_ok=True)
     idx = d / index_file
@@ -442,10 +486,14 @@ def init_store(store_dir, index_file="INDEX.md") -> dict:
         idx.write_text("", encoding="utf-8")
         index_created = True
     cfg_path = d / ".mdoc.toml"
-    cfg_path.write_text(INIT_CONFIG_TEMPLATE.format(index_file=index_file), encoding="utf-8")
+    config_written = False
+    if not cfg_path.exists():
+        cfg_path.write_text(INIT_CONFIG_TEMPLATE.format(index_file=index_file), encoding="utf-8")
+        config_written = True
     return {
         "store_dir": str(d),
         "index_file": index_file,
         "index_created": index_created,
+        "config_written": config_written,
         "config": str(cfg_path),
     }

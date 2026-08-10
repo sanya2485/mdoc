@@ -96,7 +96,13 @@ class TestFrontmatter(MdocTestCase):
     def test_scalar_fields(self):
         text = "---\ntype: reference\nname: abc\ndescription: \"x: y\"\n---\n"
         fm = core.parse_frontmatter(text)
-        self.assertEqual(fm["description"], '"x: y"')
+        self.assertEqual(fm["description"], "x: y")  # 剥掉 YAML 引号
+
+    def test_strip_quotes(self):
+        text = "---\ndescription: '单引号包裹'\ncreated: \"2026-08-06\"\n---\n"
+        fm = core.parse_frontmatter(text)
+        self.assertEqual(fm["description"], "单引号包裹")
+        self.assertEqual(fm["created"], "2026-08-06")
 
 
 class TestConfig(MdocTestCase):
@@ -154,6 +160,21 @@ class TestDocs(MdocTestCase):
         self.assertEqual(core.resolve_ref(self.cfg(), "Nginx 502 修复"), "nginx 502 修复.md")
         self.assertEqual(core.resolve_ref(self.cfg(), "nginx 502 修复.md"), "nginx 502 修复.md")
         self.assertIsNone(core.resolve_ref(self.cfg(), "不存在"))
+
+
+class TestDeleteDoc(MdocTestCase):
+    def test_delete_doc_removes_file_and_index(self):
+        self.write_doc("a", created="2026-08-01", desc="待删")
+        core.add_index_entry(self.cfg(), "a", "a.md", "待删")
+        res = core.delete_doc(self.cfg(), "a")
+        self.assertEqual(res["deleted"], "a.md")
+        self.assertFalse((self.store / "a.md").exists())
+        self.assertEqual(core.read_index(self.cfg()), [])
+        self.assertEqual(core.load_docs(self.cfg()), [])
+
+    def test_delete_doc_missing_raises(self):
+        with self.assertRaises(FileNotFoundError):
+            core.delete_doc(self.cfg(), "不存在")
 
 
 class TestIndex(MdocTestCase):
@@ -277,12 +298,17 @@ class TestInitStore(MdocTestCase):
         self.assertTrue((target / "INDEX.md").is_file())
         self.assertTrue((target / ".mdoc.toml").is_file())
         self.assertTrue(res["index_created"])
+        self.assertTrue(res["config_written"])
 
     def test_init_idempotent(self):
         target = Path(self._tmp.name) / "newstore"
         core.init_store(str(target))
+        cfg_path = target / ".mdoc.toml"
+        original = cfg_path.read_text(encoding="utf-8")
         res = core.init_store(str(target))
         self.assertFalse(res["index_created"])
+        self.assertFalse(res["config_written"])  # 重跑不覆盖用户配置
+        self.assertEqual(cfg_path.read_text(encoding="utf-8"), original)
 
     def test_init_generated_config_roundtrip(self):
         target = Path(self._tmp.name) / "newstore"

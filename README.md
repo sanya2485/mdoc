@@ -13,7 +13,7 @@ pip install -e .          # 或 python -m mdoc.cli ...
 mdoc init ~/my-docs       # 建库：目录 + 索引 + 库本地配置
 MDOC_DIR=~/my-docs mdoc list
 MDOC_DIR=~/my-docs mdoc search nginx
-MDOC_DIR=~/my-docs mdoc create ...
+MDOC_DIR=~/my-docs mdoc validate <refname> --style
 ```
 
 ## 命令
@@ -29,7 +29,9 @@ MDOC_DIR=~/my-docs mdoc create ...
 | `mdoc slugify <标题>` | 标题 → kebab-case |
 | `mdoc validate <refname> [--style] [--json]` | frontmatter / `[[wikilink]]` / 内容风格校验 |
 
-所有命令支持 `--store <dir>` 覆盖库路径（优先级：命令行 > `MDOC_DIR` > 配置）。
+`search` / `list` / `get` / `delete` / `config` / `validate` 支持 `--store <dir>` 覆盖库路径（优先级：命令行 > `MDOC_DIR` > 配置；`init` 的库目录由位置参数指定，`slugify` 无需库）。
+
+**退出码**：`validate` 0=通过，1=发现问题或文档不存在；其余命令 0=成功，1=错误。`--json` 下 stdout 只有一条 JSON。
 
 ## 配置解析优先级
 

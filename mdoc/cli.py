@@ -49,15 +49,20 @@ def _human_search(obj):
             print(f"      …{r['snippet']}…")
         if r.get("desc"):
             print(f"      {r['desc'][:60]}")
+    if obj["total"] > obj["per_page"]:
+        print(f"  （共 {obj['total']} 条，仅显示前 {obj['per_page']} 条，用 --page N 继续翻页）")
 
 
 # --- 各命令实现 ---
 
 def cmd_init(args):
     res = core.init_store(args.dir, index_file=args.index)
+    if args.json:
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        return 0
     print(f"已初始化文档库：{res['store_dir']}")
     print(f"索引文件：{res['store_dir']}/{res['index_file']}（{'新建' if res['index_created'] else '已存在'}）")
-    print(f"库本地配置：{res['config']}")
+    print(f"库本地配置：{res['config']}（{'写入' if res['config_written'] else '已存在，未覆盖'}）")
     return 0
 
 
@@ -97,9 +102,9 @@ def cmd_search(args):
     _need_store(cfg)
     ranked = core.search_docs(cfg, args.keyword)
     total = len(ranked)
-    per = args.per_page or total or 1
+    per = args.per_page or 20
     start = (args.page - 1) * per
-    obj = {"keyword": args.keyword, "total": total, "page": args.page,
+    obj = {"keyword": args.keyword, "total": total, "page": args.page, "per_page": per,
            "results": ranked[start:start + per]}
     if args.json:
         print(json.dumps(obj, ensure_ascii=False, indent=2))
@@ -137,9 +142,7 @@ def cmd_delete(args):
     if not args.yes:
         print(f"即将删除：{doc['file']}（{doc['name']}）。确认请加 --yes。", file=sys.stderr)
         return 1
-    Path(doc["path"]).unlink()
-    core.remove_index_entry(cfg, doc["file"])
-    obj = {"deleted": doc["file"], "name": doc["name"]}
+    obj = core.delete_doc(cfg, args.refname)  # core 内完成删文件 + 索引同步
     if args.json:
         print(json.dumps(obj, ensure_ascii=False, indent=2))
         return 0
@@ -188,6 +191,7 @@ def build_parser():
         sp.add_argument("--json", action="store_true", help="JSON 结构化输出（供 skill 消费）")
 
     sp = sub.add_parser("init", help="建库：创建目录 + 索引 + 库本地配置")
+    add_json(sp)
     sp.add_argument("dir")
     sp.add_argument("--index", default="INDEX.md", help="索引文件名（默认 INDEX.md）")
     sp.set_defaults(func=cmd_init)
