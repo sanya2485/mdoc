@@ -1,128 +1,97 @@
-# mdoc —— 修复方案文档管理系统（core + CLI）
+# mdoc —— 修复方案文档管理系统
 
-把"修复方案文档"的确定性操作（分类、kebab-case、frontmatter、索引同步、搜索、校验）锁进代码，供 Claude Code skill 驱动。
+每次修好一个问题，用 `/mdoc` 记一篇「问题 / 根因 / 方案」，下次遇到同样的坑，一搜就找回来。格式、分类、索引全部自动整理，你不用管。
 
-> 📖 新手先看 [快速入门 /mdoc（docs/quickstart.md）](docs/quickstart.md)——10 分钟装好并用斜杠命令记第一条修复方案。
+## 它做什么
 
-- **core**（`mdoc/core.py`）：纯逻辑，单一事实来源，零依赖，可单测。
-- **CLI**（`mdoc/cli.py`）：core 的薄壳，确定性操作 + `--json` 结构化输出。
-- **skill**：LLM 前端，模型驱动 `mdoc` 命令，不直接碰文件。
+- **记**：跟 Claude 说「记一下这次修复」，它自动从对话里整理成文档。
+- **找**：`/mdoc nginx` 一搜，以前的修复全出来。
+- **存**：文档是普通 Markdown，存在你自己的目录，随时能打开看。
 
-## 安装与快速开始
+> 📖 想 10 分钟上手，看 [快速入门（docs/quickstart.md）](docs/quickstart.md)。
+
+## 快速开始（约 5 分钟）
+
+需要：Python 3.10+、Claude Code。
+
+**① 安装命令**
 
 ```bash
-# 开源公众：clone 源码后直接装（无需 wheel）
-git clone https://github.com/sanya2485/mdoc.git && cd mdoc && pip install -e .
-
-# 分发：安装已构建的 wheel（或 python -m build 自建）
-pip install dist/mdoc-0.1.0-py3-none-any.whl
-
-# 开发：源码树内可编辑安装（提供 `mdoc` 命令）
+git clone https://github.com/sanya2485/mdoc.git
+cd mdoc
 pip install -e .
 ```
 
-```bash
-mdoc init ~/my-docs       # 建库：目录 + 索引 + 库本地配置 + skill 模板 SKILL.md
-mdoc list                 # 在库目录内运行，自动发现该库（无需 MDOC_DIR）
-mdoc search nginx
-mdoc validate <refname> --style
-```
-
-**陌生机三步走**：
-1. `pip install dist/*.whl` 安装。
-2. `mdoc init <你的文档目录>` 建库——目录 + 索引 + `.mdoc.toml` + **通用 skill 模板 `SKILL.md`** 一次到位。
-3. 把 `<目录>/SKILL.md` 复制到 Claude Code 可发现的技能目录（用户级 `skills/` 下建 `mdoc/` 子目录），即可用 `/mdoc` 斜杠命令管理文档。之后在库目录内运行 `mdoc` 命令即自动解析到该库，无需任何配置。
-
-## 作者分发渠道（私有 PyPI，非公开）
-
-> 开源公众**无需**此渠道：`git clone` 后用 `pip install -e .`（或 `python -m build` 自建 wheel）即可。私有 index 是**维护者多机分发**用的（认证防陌生访问、减流量），不对外开放注册。
-
-维护者/协作者有账密时，目标机配好 index 即可 `pip install mdoc`，不用传 wheel 文件：
+**② 建库**
 
 ```bash
-# 目标机（每台一次）：<USER>/<PASSWORD> 换成实际账密
-pip install --index-url "https://<USER>:<PASSWORD>@www.sanyablog.cn/pypi/simple/" mdoc
-# 或写入 pip 配置（Linux ~/.pip/pip.conf / Windows %APPDATA%\pip\pip.ini）：
-#   [global]
-#   index-url = https://<USER>:<PASSWORD>@www.sanyablog.cn/pypi/simple/
-
-# 维护者：发布新版本
-twine upload --repository-url https://www.sanyablog.cn/pypi/ dist/*.whl
+mdoc init ~/mdoc-docs
 ```
 
-> 真实账密由管理员线下分发（本仓库 `secrets/` 存一份，已 `.gitignore`，**不入 git**）；文档与仓库一律用 `<USER>/<PASSWORD>` 占位。
+这一步自动建好文档目录、索引和配置，并生成 skill 模板 `~/mdoc-docs/SKILL.md`。
 
-## 命令
+**③ 启用斜杠命令**
 
-| 命令 | 说明 |
+把 `~/mdoc-docs/SKILL.md` 复制到 Claude Code 的技能目录（用户级 `skills/` 下建 `mdoc/` 子目录），重启 Claude Code（或 `/reload`），就能用 `/mdoc` 了。
+
+> 只想用终端命令、不想装斜杠命令？跳过第 ③ 步，`cd ~/mdoc-docs` 后直接 `mdoc list` / `mdoc search xxx`。
+
+### 不想手动敲？把这段复制给 AI
+
+```text
+请帮我安装并配置 /mdoc（修复方案文档管理系统）：
+1. 执行 `git clone https://github.com/sanya2485/mdoc.git && cd mdoc && pip install -e .` 安装 mdoc 命令；
+2. 执行 `mdoc init <我的文档目录>` 建库——自动创建文档目录、索引、配置 .mdoc.toml，并写入 skill 模板 SKILL.md；
+3. 把 <文档目录>/SKILL.md 复制到 Claude Code 可发现的技能目录（用户级 skills/ 下建 mdoc/ 子目录），并告诉我重启 Claude Code（或 /reload）让技能生效。
+完成后运行 `mdoc --help` 验证，把命令输出和文档库目录告诉我。
+```
+
+> 提示词里的 `<我的文档目录>` 换成你自己的路径，例如 `~/mdoc-docs`。
+
+## 常用命令
+
+| 你打 | 它做 |
 |------|------|
-| `mdoc init <dir> [--index INDEX.md]` | 建库（目录+索引+库本地配置+skill 模板 SKILL.md，幂等） |
-| `mdoc config [--json]` | 打印当前配置 |
-| `mdoc list [--json] [--names]` | 列出全部 mdoc 文档 |
-| `mdoc search <关键词> [--page N] [--json]` | 索引+frontmatter+正文匹配，含过滤与排序 |
-| `mdoc get <refname> [--json]` | 查看单篇全文 |
-| `mdoc create <doc.json>|--stdin [--dry-run] [--force] [--json]` | 从 doc.json 创建（校验 → 落盘 → 索引同步） |
-| `mdoc update <refname> <patch.json>|--stdin [--dry-run] [--json]` | 追加/替换/删除章节 + 描述更新 |
-| `mdoc delete <refname> --yes [--json]` | 删文件 + 同步索引（必须显式 `--yes`） |
-| `mdoc slugify <标题>` | 标题 → kebab-case |
-| `mdoc validate <refname> [--style] [--json]` | frontmatter / `[[wikilink]]` / 内容风格校验 |
+| `/mdoc <词>` | 搜索文档（刚修完问题会自动提醒你记录） |
+| `/mdoc -f <词>` | 搜索文档 |
+| `/mdoc -l` | 列出全部文档 |
+| `/mdoc -c <标题>` | 新建文档 |
+| `/mdoc -u <参考名>` | 更新文档（追加 / 替换 / 删章节） |
+| `/mdoc -d <参考名>` | 删除文档 |
+| `/mdoc --help` | 命令速查 |
 
-`search` / `list` / `get` / `create` / `update` / `delete` / `config` / `validate` 支持 `--store <dir>` 覆盖库路径（优先级见下文 §配置解析优先级；`init` 的库目录由位置参数指定，`slugify` 无需库）。
+不装斜杠命令也能用，底层 `mdoc` 命令：`init`（建库）、`list`（列表）、`search`（搜索）、`get`（看全文）、`create` / `update` / `delete`（增删改）、`validate`（校验）、`config`（看配置）。
 
-## JSON 中间格式（skill 层组装，CLI 校验落盘）
+> 写操作都是「先预览、你确认、再落盘」；删整篇还要你输入文档名二次确认，不会误删。
 
-`mdoc create` / `mdoc update` 走 JSON 中间格式：LLM 从对话提取内容，组装成 doc.json / patch.json，`--dry-run` 出预览（不落盘），用户确认后去掉 `--dry-run` 落盘。**写操作二次确认在 skill 交互层**。
+## 文档长什么样
 
-**doc.json（create）**——`sections` 的每个元素渲染为一个 `## 标题` 章节：
+每篇修复文档就是一个 Markdown 文件，开头一段 frontmatter 记录元信息（标题、日期、标签等），正文是「问题 / 根因 / 方案」等小节。格式规则都锁在代码里，`mdoc` 自动管理——你不会记乱，多台机器行为也一致。
 
-```json
-{
-  "name": "nginx-502-fix",
-  "description": "Nginx 502 修复: 网关超时",
-  "metadata": {
-    "tags": ["nginx", "修复"],
-    "blog_ready": false,
-    "created": "2026-08-10",
-    "style": "partial"
-  },
-  "sections": [
-    { "title": "问题", "content": "502 Bad Gateway" },
-    { "title": "根因", "content": "上游超时" },
-    { "title": "修复方案", "content": "调大 proxy_read_timeout" }
-  ],
-  "filename": "optional-kebab-override"
-}
-```
+## 给维护者 / 开发者
 
-- 缺省值：`created` = 今天、`style` = 配置默认、`blog_ready` = `false`、`type` 固定为 `reference`
-- 文件名：`filename` 覆盖优先（会做 kebab-case 净化），否则 `slugify(name)`；纯中文 name 无法生成文件名时**必须提供 filename**
-- schema 不合法 → 列出问题并退出 1，不落盘；文件名冲突 → 退出 1 提示改用 `update` 或 `--force` 覆盖
+- **作者分发渠道（私有 PyPI，非公开）**：仅维护者多机分发用（认证防陌生访问、减流量），不对外注册。一般用户忽略本节：
 
-**patch.json（update）**——`op`：`append`（末尾追加章节）/ `replace`（按标题替换全部同名章节）/ `delete`（按标题删除章节）：
+  ```bash
+  # 有账密时安装：<USER>/<PASSWORD> 换成实际账密
+  pip install --index-url "https://<USER>:<PASSWORD>@www.sanyablog.cn/pypi/simple/" mdoc
 
-```json
-{
-  "description": "新描述（更新索引行）",
-  "ops": [
-    { "op": "append", "title": "验证", "content": "curl 无 502" },
-    { "op": "replace", "title": "根因", "content": "新根因" },
-    { "op": "delete", "title": "废弃章节" }
-  ]
-}
-```
+  # 发布新版本
+  twine upload --repository-url https://www.sanyablog.cn/pypi/ dist/*.whl
+  ```
 
-- `update` 不改变 `blog_ready`（§2.5）；未提供的字段原样保留（含 `node_type` 等未知字段）
-- `replace`/`delete` 目标章节不存在 → 报错退出 1（不静默）；描述与现网相同 → 视为无变更，不重写文件/索引
-- `--dry-run` 用 unified diff 输出变更预览，绝不落盘
+  真实账密由管理员线下分发（本仓库 `secrets/` 存一份，`.gitignore` 排除，**不入 git**）；文档里一律用 `<PASSWORD>` 占位。
 
-**退出码**：`validate` 0=通过，1=发现问题或文档不存在；其余命令 0=成功，1=错误。`--json` 下 stdout 只有一条 JSON。
+- **JSON 中间格式**：`create` / `update` 通过 JSON 交互（skill 组装、CLI 校验），`--dry-run` 先预览不落盘。完整说明见 [快速入门](docs/quickstart.md) 与设计文档 `mdoc-mcp-refactor-plan.md`。
 
-## 配置解析优先级
+- **配置解析优先级**：内置默认 < 用户配置 `~/.mdoc.toml` < 库本地配置 `<store>/.mdoc.toml` < `MDOC_DIR` / `--store`。
 
-内置默认 < 用户配置（`~/.mdoc.toml`，可用 `$MDOC_CONFIG` 指定）< 库本地配置（`<store>/.mdoc.toml`，`mdoc init` 生成）< `MDOC_DIR` / `--store`。
+- **跑测试**：
 
-## 开发
+  ```bash
+  python -m unittest discover -s tests -v
+  ```
 
-```bash
-python -m unittest discover -s tests -v
-```
+## License
+
+MIT
