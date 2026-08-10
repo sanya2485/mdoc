@@ -159,9 +159,9 @@
 - 判断项：`_OPS` 常量收敛 op 字面量、`_render_frontmatter` docstring 字段计数笔误修正。
 - 98/98 单测全绿。
 
-### 阶段 4 — 打包 + 通用 skill 模板
+### 阶段 4 — 打包 + 通用 skill 模板 ✅ 完成（2026-08-10，见附·阶段 4 验证记录）
 - `pyproject.toml` 打包，`mdoc init` 引导；skill 模板参数化（零硬编码路径）。
-- **验收**：在一台"陌生"机器（临时目录）走通 init → 建库 → 搜索 → 删除全流程。
+- **验收**：在一台"陌生"机器（临时目录）走通 init → 建库 → 搜索 → 删除全流程（干净 venv 装 wheel 后通过）。
 
 ### 阶段 5 —（后置，不阻塞）MCP 适配层
 - 真出现多机共享/多客户端需求时，在 core 上套一层 MCP stdio adapter，skill 加"有 tools 用 tools、没有退 CLI"。
@@ -174,8 +174,8 @@
 |---|------|------|
 | 1 | 分发形态 | 已定：pip 包 + skill 模板 |
 | 2 | 索引文件名 | ✅ 已解决（阶段 2）：core 支持可配置 `index_file`；`mdoc init` 公共默认 `INDEX.md`，个人配置保留 `MEMORY.md` |
-| 3 | 是否发布到 PyPI | 待定：先本地打包，验证后再决定 |
-| 4 | skill 模板的 skill 命名/命令协议 | 待定：阶段 4 时细化 |
+| 3 | 是否发布到 PyPI | ✅ 已解决（阶段 4）：本地打包验证完成，暂不发 PyPI（wheel + sdist 在 `dist/`，可直接分发给他人 `pip install dist/*.whl`） |
+| 4 | skill 模板的 skill 命名/命令协议 | ✅ 已解决（阶段 4）：模板沿用 `mdoc` 名 + f/l/c/u/d 参数子命令，斜杠调用形式为 `/mdoc -X`（空格分隔，如 `/mdoc -f` `/mdoc -u`；不是 `/mdoc-f`）——用户明确要求的约定 |
 
 ---
 
@@ -231,3 +231,14 @@
 - 临时库端到端：init → `create --stdin --dry-run`（预览不落盘）→ `create --stdin` 真实落盘（frontmatter 六核心字段齐全、`description` 含 `: ` 自动加引号、章节渲染为 `##` 块）→ validate 零问题 → `update --dry-run`（unified diff，不落盘）→ `update` 追加章节 + 描述变更同步索引 → `delete` 清文件+索引 ✅
 - 真实库回归：`list` TOTAL=10 不变；对现网库 `create`/`update` 双 dry-run 后 MEMORY.md 与文件清单哈希逐字节不变（零写入）✅
 - 兼容性：update 保留 frontmatter 未知字段（`node_type: memory` 等）✅；`split_sections` 正确跳过代码围栏内 `##`（不误切）✅
+
+### 阶段 4 验证记录（2026-08-10）
+
+- 106/106 单测全绿（阶段 3 的 98 + 阶段 4 新增 8：模板写入/幂等/零硬编码路径、cwd 发现 ×3、cwd 库优先于用户配置回归、陌生机端到端）。
+- 构建：`python -m build` → `dist/mdoc-0.1.0.tar.gz` + `.whl`；wheel 内确认含 `mdoc/skill_template/SKILL.md` 与 `entry_points.txt`（`mdoc = mdoc.cli:main`）。
+- 干净 venv 陌生机验收：`.venv-test` 装 wheel → 临时目录 `mdoc init`（输出含 SKILL.md，库目录 .mdoc.toml/INDEX.md/SKILL.md 齐备）→ 库目录内 `mdoc config --json`（cwd 发现）→ `create --stdin` → `search` 命中 → `delete --yes` → `list` total=0 ✅。真实库回归 TOTAL=10 不变。
+- 现网：`pip install -e .` + 用户 PATH 补 `Roaming\Python\Python314\Scripts`（`mdoc` 入口可用）；`mdoc list` TOTAL=10 不变。
+- **验收抓到的两个真 bug（都已在单测覆盖前被手工流程暴露）**：
+  1. Windows 非 UTF-8 locale：`--stdin` 读中文 → GBK+surrogateescape 产生孤立代理对 → 写回 `UnicodeEncodeError: surrogates not allowed`。修复：`main()` 统一 `reconfigure(utf-8)` stdin/stdout/stderr（9 个 create/update 用例曾因此挂）。
+  2. store_dir 解析顺序：陌生库目录内 `mdoc config` 解析到 `~/.mdoc.toml` 默认库，create/delete 打到错误位置。根因：用户配置 `cfg.get("store_dir")` 排在 `_find_cwd_store()` 之前，与文档化优先级链（库本地配置 > 用户配置）相悖。修复：cwd 发现的库优先于用户配置 + 回归测试。教训：陌生机验收若用 `MDOC_CONFIG=nonexistent` 隔离用户配置会掩盖该顺序 bug。
+- 自举验证：用新 `mdoc` 工具把本次重构全流程记录为参考文档（`mdoc-refactor-2026`）入库，TOTAL 10→11。

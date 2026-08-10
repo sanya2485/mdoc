@@ -136,6 +136,79 @@ class TestCliCommands(CliTestCase):
         self.assertEqual(obj["store_dir"], str(self.store))
 
 
+class TestStrangerFlow(CliTestCase):
+    """陌生机端到端：不设 MDOC_DIR / --store，靠 `mdoc init` + cwd 向上发现走通全流程。
+
+    阶段 4 验收（§7）：init → 建库 → 搜索 → 删除，全程无库指引。"""
+
+    def setUp(self):
+        # 不走父类 setUp（它设了 MDOC_DIR）；隔离用户配置 + 不设任何库指引
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store = Path(self._tmp.name) / "docs"
+        env = os.environ.copy()
+        env["MDOC_CONFIG"] = str(Path(self._tmp.name) / "nonexistent.toml")
+        env.pop("MDOC_DIR", None)
+        # cwd 切到库目录时仍能 import mdoc（等价于 pip 安装后的 `mdoc` 入口）
+        env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
+        self.env = env
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_cli(self, *args, input=None, cwd=None):
+        return subprocess.run(
+            [sys.executable, "-m", "mdoc.cli", *args],
+            cwd=cwd or REPO,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            input=input,
+        )
+
+    def test_stranger_full_flow(self):
+        # 1) init 建库：目录 + 索引 + 库本地配置 + SKILL.md 模板
+        r = self.run_cli("init", str(self.store))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("已初始化", r.stdout)
+        self.assertIn("SKILL.md", r.stdout)
+        self.assertTrue((self.store / ".mdoc.toml").is_file())
+        self.assertTrue((self.store / "INDEX.md").is_file())
+        self.assertTrue((self.store / "SKILL.md").is_file())
+
+        # 2) 在库目录内、无 MDOC_DIR → cwd 发现解析到该库
+        r = self.run_cli("config", "--json", cwd=str(self.store))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)["store_dir"], str(self.store))
+
+        # 3) create --stdin 建一篇文档（索引同步）
+        doc = json.dumps({
+            "name": "nginx-502-fix",
+            "description": "修复 502",
+            "metadata": {"tags": ["nginx"], "created": "2026-08-10"},
+            "sections": [{"title": "问题", "content": "出现 502。"}],
+        }, ensure_ascii=False)
+        r = self.run_cli("create", "--stdin", input=doc, cwd=str(self.store))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.store / "nginx-502-fix.md").is_file())
+        self.assertIn("nginx-502-fix.md", (self.store / "INDEX.md").read_text(encoding="utf-8"))
+
+        # 4) search 命中
+        r = self.run_cli("search", "502", "--json", cwd=str(self.store))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        obj = json.loads(r.stdout)
+        self.assertEqual(obj["total"], 1)
+        self.assertEqual(obj["results"][0]["name"], "nginx-502-fix")
+
+        # 5) delete --yes 清理 + 索引同步
+        r = self.run_cli("delete", "nginx-502-fix", "--yes", cwd=str(self.store))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse((self.store / "nginx-502-fix.md").exists())
+        self.assertNotIn("nginx-502-fix", (self.store / "INDEX.md").read_text(encoding="utf-8"))
+        r = self.run_cli("list", "--json", cwd=str(self.store))
+        self.assertEqual(json.loads(r.stdout)["total"], 0)
+
+
 class TestCliCreateUpdate(CliTestCase):
     def create_json(self, **over):
         d = {

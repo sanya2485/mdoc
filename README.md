@@ -6,21 +6,33 @@
 - **CLI**（`mdoc/cli.py`）：core 的薄壳，确定性操作 + `--json` 结构化输出。
 - **skill**：LLM 前端，模型驱动 `mdoc` 命令，不直接碰文件。
 
-## 快速开始
+## 安装与快速开始
 
 ```bash
-pip install -e .          # 或 python -m mdoc.cli ...
-mdoc init ~/my-docs       # 建库：目录 + 索引 + 库本地配置
-MDOC_DIR=~/my-docs mdoc list
-MDOC_DIR=~/my-docs mdoc search nginx
-MDOC_DIR=~/my-docs mdoc validate <refname> --style
+# 分发：安装已构建的 wheel（推荐）
+pip install dist/mdoc-0.1.0-py3-none-any.whl
+
+# 开发：源码树内可编辑安装（提供 `mdoc` 命令）
+pip install -e .
 ```
+
+```bash
+mdoc init ~/my-docs       # 建库：目录 + 索引 + 库本地配置 + skill 模板 SKILL.md
+mdoc list                 # 在库目录内运行，自动发现该库（无需 MDOC_DIR）
+mdoc search nginx
+mdoc validate <refname> --style
+```
+
+**陌生机三步走**：
+1. `pip install dist/*.whl` 安装。
+2. `mdoc init <你的文档目录>` 建库——目录 + 索引 + `.mdoc.toml` + **通用 skill 模板 `SKILL.md`** 一次到位。
+3. 把 `<目录>/SKILL.md` 复制到 Claude Code 可发现的技能目录（用户级 `skills/` 下建 `mdoc/` 子目录），即可用 `/mdoc` 斜杠命令管理文档。之后在库目录内运行 `mdoc` 命令即自动解析到该库，无需任何配置。
 
 ## 命令
 
 | 命令 | 说明 |
 |------|------|
-| `mdoc init <dir> [--index INDEX.md]` | 建库 |
+| `mdoc init <dir> [--index INDEX.md]` | 建库（目录+索引+库本地配置+skill 模板 SKILL.md，幂等） |
 | `mdoc config [--json]` | 打印当前配置 |
 | `mdoc list [--json] [--names]` | 列出全部 mdoc 文档 |
 | `mdoc search <关键词> [--page N] [--json]` | 索引+frontmatter+正文匹配，含过滤与排序 |
@@ -31,7 +43,7 @@ MDOC_DIR=~/my-docs mdoc validate <refname> --style
 | `mdoc slugify <标题>` | 标题 → kebab-case |
 | `mdoc validate <refname> [--style] [--json]` | frontmatter / `[[wikilink]]` / 内容风格校验 |
 
-`search` / `list` / `get` / `create` / `update` / `delete` / `config` / `validate` 支持 `--store <dir>` 覆盖库路径（优先级：命令行 > `MDOC_DIR` > 配置；`init` 的库目录由位置参数指定，`slugify` 无需库）。
+`search` / `list` / `get` / `create` / `update` / `delete` / `config` / `validate` 支持 `--store <dir>` 覆盖库路径（优先级见下文 §配置解析优先级；`init` 的库目录由位置参数指定，`slugify` 无需库）。
 
 ## JSON 中间格式（skill 层组装，CLI 校验落盘）
 

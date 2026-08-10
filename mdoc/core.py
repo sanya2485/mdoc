@@ -9,6 +9,7 @@ mdoc 核心模块 —— 确定性规则的单一事实来源。
 
 配置解析优先级（后者覆盖前者）：
   内置默认 < 用户配置（~/.mdoc.toml，可用 $MDOC_CONFIG 指定）
+  < 当前目录向上探测 .mdoc.toml（陌生机 fallback，未配置时免设 MDOC_DIR）
   < 库本地配置（<store_dir>/.mdoc.toml，mdoc init 生成）
   < 环境变量 MDOC_DIR / 命令行 --store
 """
@@ -71,8 +72,32 @@ def _merge_toml(cfg, path):
             cfg["style_" + k] = style[k]
 
 
+def _find_cwd_store() -> str:
+    """当前工作目录向上探测 `.mdoc.toml`（最多 5 层，到用户主目录即停）。命中返回其所在目录，否则空串。
+
+    陌生机 fallback：用户配置 / MDOC_DIR / --store 均未给出 store_dir 时，
+    在库目录内运行命令即可免配置（SKILL.md §0）。
+    到 home 即停：`~/.mdoc.toml` 是用户配置（含 store_dir 指向别处），不是库标记，
+    不设防会把 home 误当库。"""
+    d = Path.cwd().resolve()
+    home = Path(os.path.expanduser("~")).resolve()
+    for _ in range(5):
+        if d == home:
+            break
+        if (d / ".mdoc.toml").is_file():
+            return str(d)
+        if d.parent == d:
+            break
+        d = d.parent
+    return ""
+
+
 def load_config(store_override=None) -> dict:
-    """合并配置：默认 < 用户配置 < 库本地配置 < env/CLI。"""
+    """合并配置：默认 < 用户配置 < cwd 发现（库本地） < env/CLI。
+
+    store_dir 解析：--store > MDOC_DIR > 当前目录向上发现的库（.mdoc.toml）
+    > 用户配置 ~/.mdoc.toml > 未配置。库目录内的调用优先于用户默认库——
+    否则陌生库目录里跑命令会被 ~/.mdoc.toml 的默认库劫持。"""
     cfg = {
         "store_dir": DEFAULT_STORE_DIR,
         "index_file": DEFAULT_INDEX_FILE,
@@ -84,7 +109,11 @@ def load_config(store_override=None) -> dict:
     }
     _merge_toml(cfg, user_config_path())
     store_dir = (
-        store_override or os.environ.get("MDOC_DIR") or cfg.get("store_dir") or ""
+        store_override
+        or os.environ.get("MDOC_DIR")
+        or _find_cwd_store()
+        or cfg.get("store_dir")
+        or ""
     )
     cfg["store_dir"] = store_dir
     if store_dir:
@@ -812,8 +841,23 @@ default = "partial"
 """
 
 
+def write_skill_template(store_dir) -> str:
+    """把包内 skill_template/SKILL.md 写入 <store_dir>/SKILL.md（仅当不存在）。
+
+    返回 written | exists | absent。模板随 wheel 分发（package-data），
+    源码树与安装态均可通过 __file__ 定位。幂等：不覆盖用户改动。"""
+    src = Path(__file__).parent / "skill_template" / "SKILL.md"
+    if not src.is_file():
+        return "absent"
+    dst = Path(store_dir) / "SKILL.md"
+    if dst.exists():
+        return "exists"
+    dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    return "written"
+
+
 def init_store(store_dir, index_file="INDEX.md") -> dict:
-    """建库：创建目录 + 索引 + 库本地配置。幂等（已存在则跳过，不覆盖用户改动）。"""
+    """建库：创建目录 + 索引 + 库本地配置 + skill 模板。幂等（已存在则跳过，不覆盖用户改动）。"""
     d = Path(store_dir)
     d.mkdir(parents=True, exist_ok=True)
     idx = d / index_file
@@ -832,4 +876,5 @@ def init_store(store_dir, index_file="INDEX.md") -> dict:
         "index_created": index_created,
         "config_written": config_written,
         "config": str(cfg_path),
+        "skill_template": write_skill_template(d),
     }

@@ -318,6 +318,85 @@ class TestInitStore(MdocTestCase):
         self.assertEqual(cfg["index_file"], "INDEX.md")
         self.assertEqual(cfg["style_default"], "partial")
 
+    def test_init_writes_skill_template(self):
+        target = Path(self._tmp.name) / "newstore"
+        res = core.init_store(str(target))
+        self.assertEqual(res["skill_template"], "written")
+        self.assertTrue((target / "SKILL.md").is_file())
+
+    def test_init_skill_template_idempotent(self):
+        target = Path(self._tmp.name) / "newstore"
+        core.init_store(str(target))
+        tpl = target / "SKILL.md"
+        original = tpl.read_text(encoding="utf-8")
+        res = core.init_store(str(target))
+        self.assertEqual(res["skill_template"], "exists")  # 重跑不覆盖用户改动
+        self.assertEqual(tpl.read_text(encoding="utf-8"), original)
+
+    def test_skill_template_no_hardcoded_paths(self):
+        # 模板是给陌生人用的：零机器路径 / 零个人信息，命令走 mdoc CLI（SKILL.md §0 分发约束）
+        tpl = (Path(core.__file__).parent / "skill_template" / "SKILL.md").read_text(encoding="utf-8")
+        for bad in ("C:\\Users", "~/.claude", "sanye", "myfireflyblog", "blog-pipeline"):
+            self.assertNotIn(bad, tpl, f"模板不应含 {bad}")
+        # 命令协议全部走 mdoc CLI，斜杠调用为 `/mdoc -X` 空格形式
+        for cmd in ("mdoc init", "mdoc list", "mdoc search", "mdoc create --stdin --dry-run",
+                    "mdoc update", "mdoc delete", "/mdoc -u"):
+            self.assertIn(cmd, tpl)
+
+
+class TestConfigCwdDiscovery(MdocTestCase):
+    """陌生机 fallback：无用户配置 / MDOC_DIR / --store 时，靠 cwd 向上探测 .mdoc.toml。"""
+
+    def _chdir(self, d):
+        self._saved_cwd = os.getcwd()
+        os.chdir(d)
+
+    def tearDown(self):
+        if getattr(self, "_saved_cwd", None):
+            os.chdir(self._saved_cwd)
+        super().tearDown()
+
+    def test_cwd_finds_store(self):
+        store = Path(self._tmp.name) / "cwdstore"
+        store.mkdir()
+        (store / ".mdoc.toml").write_text('index_file = "INDEX.md"\n', encoding="utf-8")
+        self._chdir(store)
+        cfg = core.load_config()  # 无 store_override、无 MDOC_DIR
+        self.assertEqual(cfg["store_dir"], str(store))
+        self.assertEqual(cfg["index_file"], "INDEX.md")
+
+    def test_cwd_finds_parent_store(self):
+        store = Path(self._tmp.name) / "parentstore"
+        store.mkdir()
+        (store / ".mdoc.toml").write_text("index_file = \"INDEX.md\"\n", encoding="utf-8")
+        sub = store / "sub" / "deeper"
+        sub.mkdir(parents=True)
+        self._chdir(sub)
+        self.assertEqual(core.load_config()["store_dir"], str(store))
+
+    def test_cwd_no_config_keeps_empty(self):
+        plain = Path(self._tmp.name) / "plain"
+        plain.mkdir()
+        self._chdir(plain)
+        self.assertEqual(core.load_config()["store_dir"], "")
+
+    def test_cwd_store_beats_user_config(self):
+        """回归：库目录内的调用必须选该库，不被 ~/.mdoc.toml 默认库劫持。
+        手工验收发现：陌生库目录里跑 `mdoc config` 解析到了用户配置的默认库，
+        把 create/delete 打到了错误位置。cwd 发现的库（库本地配置）优先于用户配置。"""
+        default_store = Path(self._tmp.name) / "defaultstore"
+        default_store.mkdir()
+        user_cfg = Path(self._tmp.name) / "user.toml"
+        # TOML literal 字符串（单引号）避免 Windows 反斜杠转义问题
+        user_cfg.write_text(
+            "store_dir = '%s'\nindex_file = 'MEMORY.md'\n" % str(default_store),
+            encoding="utf-8")
+        os.environ["MDOC_CONFIG"] = str(user_cfg)
+        self._chdir(self.store)  # setUp 已在该目录写 .mdoc.toml（index_file=INDEX.md）
+        cfg = core.load_config()
+        self.assertEqual(cfg["store_dir"], str(self.store))
+        self.assertEqual(cfg["index_file"], "INDEX.md")  # 用库本地配置，而非用户配置的 MEMORY.md
+
 
 class TestDocJson(MdocTestCase):
     def _doc(self, **over):

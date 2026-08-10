@@ -66,6 +66,11 @@ def cmd_init(args):
     print(f"已初始化文档库：{res['store_dir']}")
     print(f"索引文件：{res['store_dir']}/{res['index_file']}（{'新建' if res['index_created'] else '已存在'}）")
     print(f"库本地配置：{res['config']}（{'写入' if res['config_written'] else '已存在，未覆盖'}）")
+    if res["skill_template"] == "absent":
+        print("skill 模板：未随包提供（跳过）")
+    else:
+        print(f"skill 模板：{res['store_dir']}/SKILL.md（"
+              + ("写入，可复制到 Claude Code 技能目录" if res["skill_template"] == "written" else "已存在，未覆盖") + "）")
     return 0
 
 
@@ -376,6 +381,9 @@ def build_parser():
 
 
 def main(argv=None):
+    # 统一 UTF-8：stdin 若不重配，Windows 非 UTF-8 locale 下 `--stdin` 读中文会按 GBK 解码成
+    # 孤立代理对，再写回 UTF-8 时报 UnicodeEncodeError（surrogates not allowed）。
+    sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
     args = build_parser().parse_args(argv)
