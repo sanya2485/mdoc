@@ -2,6 +2,8 @@
 
 把"修复方案文档"的确定性操作（分类、kebab-case、frontmatter、索引同步、搜索、校验）锁进代码，供 Claude Code skill 驱动。
 
+> 📖 新手先看 [快速入门 /mdoc（docs/quickstart.md）](docs/quickstart.md)——10 分钟装好并用斜杠命令记第一条修复方案。
+
 - **core**（`mdoc/core.py`）：纯逻辑，单一事实来源，零依赖，可单测。
 - **CLI**（`mdoc/cli.py`）：core 的薄壳，确定性操作 + `--json` 结构化输出。
 - **skill**：LLM 前端，模型驱动 `mdoc` 命令，不直接碰文件。
