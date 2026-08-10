@@ -88,6 +88,8 @@ mdoc install-skill
 
 - **JSON 中间格式**：`create` / `update` 通过 JSON 交互（skill 组装、CLI 校验），`--dry-run` 先预览不落盘。完整说明见 [快速入门](docs/quickstart.md) 与设计文档 `mdoc-mcp-refactor-plan.md`。
 
+- **`install-skill` 子命令**：把包内 `skill_template/SKILL.md` 装到 Claude Code 技能目录，一键补上「pip 装完没有 /mdoc」的缺口。默认装到 `~/.claude/skills/mdoc/`；用 `--skill-dir <目录>` 改目标，`--force` 覆盖已有文件，`--json` 结构化输出（`{"skill_dir": ..., "status": "written|exists|absent"}`）。更新模板后重建 wheel 上传，用户跑 `mdoc install-skill --force` 即可升级。
+
 - **配置解析优先级**：内置默认 < 用户配置 `~/.mdoc.toml` < 库本地配置 `<store>/.mdoc.toml` < `MDOC_DIR` / `--store`。
 
 - **跑测试**：
