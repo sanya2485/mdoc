@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mdoc"
+version = "0.1.0"
+description = "修复方案文档管理系统 —— core + CLI（确定性规则锁进代码）"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+[project.scripts]
+mdoc = "mdoc.cli:main"
+
+[tool.setuptools]
+packages = ["mdoc"]
