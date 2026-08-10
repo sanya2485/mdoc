@@ -46,8 +46,6 @@ mdoc install-skill
 
 > 提示词里的 `<我的文档目录>` 换成你自己的路径，例如 `~/mdoc-docs`。
 
-> 💡 **维护者自用渠道**：作者在私有 index（`https://www.sanyablog.cn/pypi/simple/`，pypiserver + htpasswd 认证）做多机分发，不对外开放注册。一般用户请用 `git clone` + `pip install -e .` 或自建 wheel，无需申请账密。详见 [README「作者分发渠道」](../README.md)。
-
 ## 3. 一条命令一次搜索
 
 在库目录内（`cd ~/mdoc-docs`）运行，`mdoc` 自动发现该库，**不用配任何环境变量**。

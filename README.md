@@ -74,40 +74,6 @@ mdoc install-skill
 
 每篇修复文档就是一个 Markdown 文件，开头一段 frontmatter 记录元信息（标题、日期、标签等），正文是「问题 / 根因 / 方案」等小节。格式规则都锁在代码里，`mdoc` 自动管理——你不会记乱，多台机器行为也一致。
 
-## 给维护者 / 开发者
-
-- **作者分发渠道（私有 PyPI，非公开）**：仅维护者多机分发用（认证防陌生访问、减流量），不对外注册。一般用户忽略本节：
-
-  ```bash
-  # 有账密时安装：<USER>/<PASSWORD> 换成实际账密
-  pip install --index-url "https://<USER>:<PASSWORD>@www.sanyablog.cn/pypi/simple/" mdoc
-
-  # 发布新版本
-  twine upload --repository-url https://www.sanyablog.cn/pypi/ dist/*.whl
-  ```
-
-  真实账密由管理员线下分发（本仓库 `secrets/` 存一份，`.gitignore` 排除，**不入 git**）；文档里一律用 `<PASSWORD>` 占位。
-
-  **不想手动敲？维护者快速开始，把这段复制给 AI**（`<USER>/<PASSWORD>` 换成实际账密）：
-
-  ```text
-  请帮我安装并配置 /mdoc（修复方案文档管理系统）：
-  1. 执行 `pip install --index-url "https://<USER>:<PASSWORD>@www.sanyablog.cn/pypi/simple/" mdoc` 安装 mdoc 命令；
-  2. 执行 `mdoc init <我的文档目录>` 建库——自动创建文档目录、索引、配置 .mdoc.toml，写入 skill 模板 SKILL.md，并把库注册进用户级配置（之后任意目录都能用）；
-  3. 执行 `mdoc install-skill` 把 skill 安装到 Claude Code 技能目录，并告诉我重启 Claude Code（或 /reload）让技能生效。
-  完成后运行 `mdoc --help` 验证，把命令输出和文档库目录告诉我。
-  ```
-
-- **JSON 中间格式**：`create` / `update` 通过 JSON 交互（skill 组装、CLI 校验），`--dry-run` 先预览不落盘。完整说明见 [快速入门](docs/quickstart.md) 与设计文档 `mdoc-mcp-refactor-plan.md`。
-
-- **配置解析优先级**：内置默认 < 用户配置 `~/.mdoc.toml` < 库本地配置 `<store>/.mdoc.toml` < `MDOC_DIR` / `--store`。
-
-- **跑测试**：
-
-  ```bash
-  python -m unittest discover -s tests -v
-  ```
-
 ## License
 
 MIT
