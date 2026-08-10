@@ -100,7 +100,40 @@ frontmatter 里 `metadata.style` 决定脱敏程度，默认 `partial`：
 
 `mdoc validate <参考名> --style` 能查有没有把密钥/路径泄进去。
 
-## 8. 更多
+## 8. 调用流程（一条命令怎么跑起来）
+
+```
+你输入 /mdoc -f 502
+   │
+   ▼
+① Claude Code 命中 mdoc 技能（SKILL.md）
+   技能是 LLM 指令层：解析意图（-f 搜索 / -l 列表 / -c 创建 / -u 更新 / -d 删除）；
+   裸 /mdoc = 搜索 + 上下文感知（检测到修复场景 → 提示归档）
+   │
+   ▼
+② 技能决定跑哪些确定性命令（Bash，必要时 --json）：
+   mdoc search / list / get / create / update / delete ...
+   │
+   ▼
+③ mdoc CLI（薄壳）：解析参数 → 调 core → 输出（--json 下 stdout 只有一条 JSON）
+   │
+   ▼
+④ core（规则唯一写入方）：
+   解析库路径（--store > MDOC_DIR > 当前目录向上发现 > 用户配置）
+   → 读写库文件：frontmatter / kebab-case / 索引同步 / 搜索排序 / 校验
+   │
+   ▼
+⑤ 库文件：<store>/*.md + <store>/<INDEX>.md + <store>/.mdoc.toml
+   │
+   ▼
+⑥ 结果回传 → 技能格式化呈现给你
+```
+
+**写操作（create / update / delete）固定双段式**：`--dry-run` 预览（不落盘）→ 你确认 → 去掉 `--dry-run` 落盘。
+
+**一句话**：skill 只负责「听懂你 + 组内容 + 跑命令」，规则和写文件全在 mdoc 代码里——格式永远不会乱，多台机器行为一致，这也是它能打包分发给陌生人的原因。
+
+## 9. 更多
 
 - `mdoc --help`：全部命令。
 - 文档格式规范：库里的 `SKILL.md` §1（frontmatter 字段、kebab-case 文件名、YAML 安全由 core 保证）。
