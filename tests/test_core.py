@@ -233,6 +233,20 @@ class TestSearch(MdocTestCase):
         results = core.search_docs(self.cfg(), "nginx")
         self.assertEqual(results[0]["name"], "nginx")  # 精确名 201 > 包含名 200
 
+    def test_multi_word_and(self):
+        # 多词查询：每个词至少命中一处才返回；只命中一个词的文档被 AND 过滤
+        self.write_doc("mysql-deadlock-fix", created="2026-08-02", desc="修复MySQL死锁")
+        self.write_doc("mysql-optimize", created="2026-08-01", desc="MySQL 性能优化")
+        results = core.search_docs(self.cfg(), "MySQL 死锁")
+        self.assertEqual([r["name"] for r in results], ["mysql-deadlock-fix"])
+
+    def test_multi_word_snippet_probes_first_token(self):
+        # 整串不在正文时，摘要应定位到任一命中词，而非为空
+        self.write_doc("微信修复", created="2026-08-01", body="登录失败是根因，改缓存逻辑")
+        results = core.search_docs(self.cfg(), "微信 缓存")
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]["snippet"])
+
 
 class TestStyle(MdocTestCase):
     def test_resolve_style_defaults(self):

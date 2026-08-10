@@ -86,6 +86,16 @@ class TestCliCommands(CliTestCase):
         self.assertEqual(obj["total"], 2)
         self.assertEqual(obj["results"][0]["name"], "nginx 502")
 
+    def test_search_multi_word_and(self):
+        # 多词查询（README 示例 `/mdoc -f MySQL 死锁`）：合并为一个搜索词 → 每词 AND 命中
+        self.write_doc("mysql-deadlock-fix", created="2026-08-02", desc="修复MySQL死锁", body="出现死锁")
+        self.write_doc("mysql-optimize", created="2026-08-01", desc="MySQL 性能优化")
+        r = self.run_cli("search", "MySQL 死锁", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        obj = json.loads(r.stdout)
+        self.assertEqual(obj["total"], 1)
+        self.assertEqual(obj["results"][0]["name"], "mysql-deadlock-fix")
+
     def test_get(self):
         self.write_doc("a", body="正文内容测试")
         r = self.run_cli("get", "a")

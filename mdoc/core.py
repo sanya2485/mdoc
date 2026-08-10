@@ -322,19 +322,43 @@ def remove_index_entry(cfg, file):
 # ---------------------------------------------------------------------------
 
 def _match(d, index_title, kw, text):
-    """确定性匹配得分：name 精确 > name 包含 > desc > 索引标题 > 正文。返回 (score, 命中位置)。"""
+    """确定性匹配得分：关键词按空白分词，每个词须命中任一处（AND 语义）。
+
+    单 token 行为不变：name 精确 201 > name 包含 200 > desc 160 > 索引标题 120 > 正文 80。
+    多 token：每词取其命中域最高分求和；任一 token 未命中任何域 → 整篇不匹配。
+    多 token 额外加 `(词数-1)*80` 基础分，使"每词至少正文级"的多词命中排在单 token
+    命中之前（AND 查询的全部命中都满足所有词，理应整体靠前）。
+    返回 (score, 命中位置)；不匹配返回 (None, None)。"""
     name = d["name"].lower()
     desc = d["desc"].lower()
     index_title = index_title.lower()
-    if kw in name:
-        return (201 if kw == name else 200), "name"
-    if kw in desc:
-        return 160, "desc"
-    if kw in index_title:
-        return 120, "title"
-    if kw in text.lower():
-        return 80, "body"
-    return None, None
+    low = text.lower()
+    tokens = [t for t in kw.split() if t]
+    if not tokens:
+        return None, None
+
+    def hit(tok):
+        if tok in name:
+            return 201 if tok == name else 200, "name"
+        if tok in desc:
+            return 160, "desc"
+        if tok in index_title:
+            return 120, "title"
+        if tok in low:
+            return 80, "body"
+        return None, None
+
+    total, where = 0, None
+    for tok in tokens:
+        s, w = hit(tok)
+        if s is None:
+            return None, None
+        total += s
+        if where is None:
+            where = w
+    if len(tokens) > 1:
+        total += (len(tokens) - 1) * 80
+    return total, where
 
 
 def _snippet(text, kw, width=40):
@@ -352,10 +376,14 @@ def _snippet(text, kw, width=40):
 
 
 def search_docs(cfg, keyword) -> list:
-    """搜索全部 mdoc 文档，按相关度（score desc, created desc）排序。"""
+    """搜索全部 mdoc 文档，按相关度（score desc, created desc）排序。
+
+    关键词按空白分词、AND 语义（每词须命中任一处）——多词查询不再被整串子串
+    匹配坑掉（README 示例 `/mdoc -f MySQL 死锁` 现在可用，两个词分别命中即返回）。"""
     kw = keyword.strip().lower()
     if not kw:
         return []
+    tokens = [t for t in kw.split() if t]
     store_dir = Path(cfg["store_dir"])
     titles = {e["file"]: e["title"] for e in read_index(cfg)}
     ranked = []
@@ -366,7 +394,10 @@ def search_docs(cfg, keyword) -> list:
         score, where = _match(d, titles.get(d["file"], ""), kw, text)
         if score is None:
             continue
-        ranked.append({**d, "score": score, "match": where, "snippet": _snippet(text, kw)})
+        # 摘要定位到第一个在正文出现的词（整串多词时定位更稳）
+        probe = next((t for t in tokens if t in text.lower()), None)
+        ranked.append({**d, "score": score, "match": where,
+                       "snippet": _snippet(text, probe) if probe else ""})
     ranked.sort(key=lambda r: (r["score"], r["created"]), reverse=True)
     return ranked
 
