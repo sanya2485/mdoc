@@ -28,7 +28,7 @@ pip install -e .
 mdoc init ~/mdoc-docs
 ```
 
-这一步自动建好文档目录、索引和配置，并生成 skill 模板 `~/mdoc-docs/SKILL.md`。
+这一步自动建好文档目录、索引和配置，生成 skill 模板 `~/mdoc-docs/SKILL.md`，并把库注册进用户级配置 `~/.mdoc.toml`——之后**在任意目录**都能直接 `mdoc list` / `mdoc search`，不用先 `cd` 进库目录。
 
 **③ 启用斜杠命令**
 
@@ -38,14 +38,16 @@ mdoc install-skill
 
 这一步把 skill 模板安装到 Claude Code 的技能目录 `~/.claude/skills/mdoc/`。重启 Claude Code（或 `/reload`）后就能用 `/mdoc` 了。以后想更新到最新模板，`mdoc install-skill --force` 即可。
 
-> 只想用终端命令、不想装斜杠命令？跳过第 ③ 步，`cd ~/mdoc-docs` 后直接 `mdoc list` / `mdoc search xxx`。
+> 只想用终端命令、不想装斜杠命令？跳过第 ③ 步，直接 `mdoc list` / `mdoc search xxx`（任意目录都行，库已注册进用户级配置）。
+
+> 🔁 **升级 / 重装不丢数据**：`pip install --force-reinstall ... mdoc` 只更新程序本体，不会改动你的文档和配置文件。若某天在某个目录 `mdoc list` 报「未配置文档库」而你的库其实还在：重跑一次 `mdoc init <你的库目录>` 即可把它重新注册进用户级配置，文档一个不少。
 
 ### 不想手动敲？把这段复制给 AI
 
 ```text
 请帮我安装并配置 /mdoc（修复方案文档管理系统）：
 1. 执行 `git clone https://github.com/sanya2485/mdoc.git && cd mdoc && pip install -e .` 安装 mdoc 命令；
-2. 执行 `mdoc init <我的文档目录>` 建库——自动创建文档目录、索引、配置 .mdoc.toml，并写入 skill 模板 SKILL.md；
+2. 执行 `mdoc init <我的文档目录>` 建库——自动创建文档目录、索引、配置 .mdoc.toml，写入 skill 模板 SKILL.md，并把库注册进用户级配置（之后任意目录都能用）；
 3. 执行 `mdoc install-skill` 把 skill 安装到 Claude Code 技能目录（~/.claude/skills/mdoc/），并告诉我重启 Claude Code（或 /reload）让技能生效。
 完成后运行 `mdoc --help` 验证，把命令输出和文档库目录告诉我。
 ```
@@ -91,7 +93,7 @@ mdoc install-skill
   ```text
   请帮我安装并配置 /mdoc（修复方案文档管理系统）：
   1. 执行 `pip install --index-url "https://<USER>:<PASSWORD>@www.sanyablog.cn/pypi/simple/" mdoc` 安装 mdoc 命令；
-  2. 执行 `mdoc init <我的文档目录>` 建库——自动创建文档目录、索引、配置 .mdoc.toml，并写入 skill 模板 SKILL.md；
+  2. 执行 `mdoc init <我的文档目录>` 建库——自动创建文档目录、索引、配置 .mdoc.toml，写入 skill 模板 SKILL.md，并把库注册进用户级配置（之后任意目录都能用）；
   3. 执行 `mdoc install-skill` 把 skill 安装到 Claude Code 技能目录，并告诉我重启 Claude Code（或 /reload）让技能生效。
   完成后运行 `mdoc --help` 验证，把命令输出和文档库目录告诉我。
   ```

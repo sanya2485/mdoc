@@ -872,6 +872,35 @@ default = "partial"
 """
 
 
+def _ensure_user_store_dir(store_dir) -> str:
+    """把新建库注册进用户级配置（~/.mdoc.toml 的 store_dir），让任意目录都能解析到库。
+
+    行级编辑保留已有配置的其余内容（index_file / [classification] / [style] 等）；
+    已有 store_dir 且指向存在的目录时不覆盖（返回 existing），避免劫持用户已有库。
+    返回 written | existing。"""
+    u = user_config_path()
+    new_val = Path(store_dir).as_posix()  # 正斜杠，规避 TOML 反斜杠转义
+    existing = ""
+    if u.is_file():
+        try:
+            with open(u, "rb") as f:
+                existing = tomllib.load(f).get("store_dir") or ""
+        except (OSError, tomllib.TOMLDecodeError):
+            existing = ""
+        if existing and Path(existing).is_dir():
+            return "existing"
+    text = u.read_text(encoding="utf-8") if u.is_file() else ""
+    if re.search(r"(?m)^store_dir\s*=.*$", text):
+        text = re.sub(r"(?m)^store_dir\s*=.*$", f'store_dir = "{new_val}"', text, count=1)
+    else:
+        if text and not text.endswith("\n"):
+            text += "\n"
+        text += f'store_dir = "{new_val}"\n'
+    u.parent.mkdir(parents=True, exist_ok=True)
+    u.write_text(text, encoding="utf-8")
+    return "written"
+
+
 def write_skill_template(store_dir, force=False) -> str:
     """把包内 skill_template/SKILL.md 写入 <store_dir>/SKILL.md（默认仅当不存在）。
 
@@ -908,6 +937,7 @@ def init_store(store_dir, index_file="INDEX.md") -> dict:
         "config_written": config_written,
         "config": str(cfg_path),
         "skill_template": write_skill_template(d),
+        "user_config": _ensure_user_store_dir(d),
     }
 
 

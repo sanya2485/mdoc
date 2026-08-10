@@ -21,7 +21,7 @@ git clone https://github.com/sanya2485/mdoc.git
 cd mdoc
 pip install -e .
 
-# ② 建库：目录 + 索引 + 配置 + skill 模板 SKILL.md 一次到位
+# ② 建库：目录 + 索引 + 配置 + skill 模板 SKILL.md 一次到位，并注册进用户级配置（任意目录可用）
 mdoc init ~/mdoc-docs
 
 # ③ 装斜杠命令：skill 模板装到 Claude Code 技能目录（~/.claude/skills/mdoc/）
@@ -39,7 +39,7 @@ mdoc install-skill
 ```text
 请帮我安装并配置 /mdoc（修复方案文档管理系统）：
 1. 执行 `git clone https://github.com/sanya2485/mdoc.git && cd mdoc && pip install -e .` 安装 mdoc 命令；
-2. 执行 `mdoc init <我的文档目录>` 建库——自动创建目录、索引、库本地配置 .mdoc.toml，并写入 skill 模板 SKILL.md；
+2. 执行 `mdoc init <我的文档目录>` 建库——自动创建目录、索引、库本地配置 .mdoc.toml，写入 skill 模板 SKILL.md，并注册进用户级配置（之后任意目录都能用）；
 3. 执行 `mdoc install-skill` 把 skill 安装到 Claude Code 技能目录（~/.claude/skills/mdoc/），并告诉我重启 Claude Code（或 /reload）让技能生效。
 完成后运行 `mdoc --help` 验证，把命令输出和文档库目录告诉我。
 ```
@@ -100,13 +100,15 @@ mdoc search nginx
 mdoc get nginx-502-fix
 ```
 
-不在库目录里时，指定库：`mdoc --store ~/mdoc-docs list`，或设一次环境变量 `MDOC_DIR=~/mdoc-docs`。
+`mdoc init` 建过库后，库已注册进用户级配置，**任意目录**都能 `mdoc list` / `mdoc search`；想临时指定别的库，用 `mdoc --store <库目录> list`，或设一次 `MDOC_DIR=<库目录>`。
 
 ## 6. 配置（可选）
 
 - 库本地配置 `~/mdoc-docs/.mdoc.toml`（`mdoc init` 生成）：改索引文件名、排除项、默认风格等。
-- 用户配置 `~/.mdoc.toml`：设置你自己的默认库，所有目录都生效（`$MDOC_CONFIG` 可换路径）。
+- 用户配置 `~/.mdoc.toml`：设置你自己的默认库，所有目录都生效（`$MDOC_CONFIG` 可换路径）。**`mdoc init` 建库时自动把新库注册到这里**，所以建过库后任意目录都能用。
 - **库路径解析优先级**：`--store <dir>` > `MDOC_DIR` > 当前目录向上发现 `.mdoc.toml` > 用户配置 > 未配置。
+
+> 🔁 **重装不丢数据 / 找不到库了？** `pip install --force-reinstall ... mdoc` 只更新程序，不改你的文档和配置。若某个目录 `mdoc list` 报「未配置文档库」、而库还在：重跑 `mdoc init <你的库目录>`（幂等，重新注册用户级配置，文档原样保留）。
 
 ## 7. 文档风格（记之前心里有数）
 

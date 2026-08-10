@@ -67,6 +67,9 @@ def cmd_init(args):
     print(f"已初始化文档库：{res['store_dir']}")
     print(f"索引文件：{res['store_dir']}/{res['index_file']}（{'新建' if res['index_created'] else '已存在'}）")
     print(f"库本地配置：{res['config']}（{'写入' if res['config_written'] else '已存在，未覆盖'}）")
+    uc_note = {"written": "store_dir 已注册（任意目录可解析该库）",
+               "existing": "已有有效 store_dir，未覆盖"}.get(res.get("user_config"), "")
+    print(f"用户级配置：{core.user_config_path()}（{uc_note}）")
     if res["skill_template"] == "absent":
         print("skill 模板：未随包提供（跳过）")
     else:

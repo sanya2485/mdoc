@@ -347,6 +347,44 @@ class TestInitStore(MdocTestCase):
         self.assertEqual(res["skill_template"], "exists")  # 重跑不覆盖用户改动
         self.assertEqual(tpl.read_text(encoding="utf-8"), original)
 
+    def test_init_registers_user_config_store_dir(self):
+        # init 把库注册进用户级配置 → 从任意目录（库外、无 .mdoc.toml）都能解析到库
+        target = Path(self._tmp.name) / "newstore"
+        res = core.init_store(str(target))
+        self.assertEqual(res["user_config"], "written")
+        text = core.user_config_path().read_text(encoding="utf-8")
+        self.assertIn(f'store_dir = "{target.as_posix()}"', text)
+        self.assertEqual(core.load_config()["store_dir"], target.as_posix())
+
+    def test_init_does_not_overwrite_existing_user_store_dir(self):
+        # 用户级配置已有有效 store_dir → init 不覆盖（防劫持已有库）
+        other = Path(self._tmp.name) / "other-store"
+        other.mkdir()
+        uc = core.user_config_path()
+        uc.write_text(f'store_dir = "{other.as_posix()}"\nindex_file = "MEMORY.md"\n',
+                      encoding="utf-8")
+        target = Path(self._tmp.name) / "newstore"
+        res = core.init_store(str(target))
+        self.assertEqual(res["user_config"], "existing")
+        text = uc.read_text(encoding="utf-8")
+        self.assertIn(other.as_posix(), text)
+        self.assertNotIn(target.as_posix(), text)
+        self.assertIn('index_file = "MEMORY.md"', text)
+        self.assertEqual(core.load_config()["store_dir"], other.as_posix())
+
+    def test_init_user_config_preserves_other_keys(self):
+        # 行级编辑：补 store_dir，保留已有 index_file / classification 等
+        uc = core.user_config_path()
+        uc.write_text('index_file = "MEMORY.md"\n[classification]\nexcluded_types = ["user"]\n',
+                      encoding="utf-8")
+        target = Path(self._tmp.name) / "newstore"
+        res = core.init_store(str(target))
+        self.assertEqual(res["user_config"], "written")
+        text = uc.read_text(encoding="utf-8")
+        self.assertIn(f'store_dir = "{target.as_posix()}"', text)
+        self.assertIn('index_file = "MEMORY.md"', text)
+        self.assertIn('excluded_types = ["user"]', text)
+
     def test_skill_template_no_hardcoded_paths(self):
         # 模板是给陌生人用的：零机器路径 / 零个人信息，命令走 mdoc CLI（SKILL.md §0 分发约束）
         tpl = (Path(core.__file__).parent / "skill_template" / "SKILL.md").read_text(encoding="utf-8")

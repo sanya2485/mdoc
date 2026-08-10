@@ -218,6 +218,35 @@ class TestStrangerFlow(CliTestCase):
         r = self.run_cli("list", "--json", cwd=str(self.store))
         self.assertEqual(json.loads(r.stdout)["total"], 0)
 
+    def test_init_registers_store_usable_from_any_cwd(self):
+        # 客户端场景（2026-08-10）：库在 <桌面>/mdoc，从桌面根目录跑 mdoc list，
+        # 向上探测找不到库、无用户级配置 → 文档"消失"。
+        # 修复：init 把 store_dir 写进用户级配置 → 从库外任意目录也能解析到库。
+        r = self.run_cli("init", str(self.store))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("用户级配置", r.stdout)
+        self.assertIn("store_dir 已注册", r.stdout)
+
+        # 建一篇文档（在库目录内）
+        doc = json.dumps({
+            "name": "nginx-502-fix",
+            "description": "修复 502",
+            "metadata": {"tags": ["nginx"], "created": "2026-08-10"},
+            "sections": [{"title": "问题", "content": "出现 502。"}],
+        }, ensure_ascii=False)
+        r = self.run_cli("create", "--stdin", input=doc, cwd=str(self.store))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+        # 从库外中性目录跑 mdoc list（无 .mdoc.toml、无 MDOC_DIR）→ 靠用户级配置解析到库
+        neutral = Path(self._tmp.name) / "neutral-dir"
+        neutral.mkdir()
+        r = self.run_cli("list", "--json", cwd=str(neutral))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        obj = json.loads(r.stdout)
+        self.assertEqual(obj["total"], 1)
+        self.assertEqual(obj["store_dir"], self.store.as_posix())
+        self.assertEqual(obj["docs"][0]["name"], "nginx-502-fix")
+
 
 class TestCliCreateUpdate(CliTestCase):
     def create_json(self, **over):
