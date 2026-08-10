@@ -25,7 +25,7 @@ class CliTestCase(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def run_cli(self, *args):
+    def run_cli(self, *args, input=None):
         return subprocess.run(
             [sys.executable, "-m", "mdoc.cli", *args],
             cwd=REPO,
@@ -33,6 +33,7 @@ class CliTestCase(unittest.TestCase):
             capture_output=True,
             text=True,
             encoding="utf-8",
+            input=input,
         )
 
     def write_doc(self, name, created="2026-08-01", desc="", body="", type="reference"):
@@ -133,6 +134,136 @@ class TestCliCommands(CliTestCase):
         r = self.run_cli("config", "--json")
         obj = json.loads(r.stdout)
         self.assertEqual(obj["store_dir"], str(self.store))
+
+
+class TestCliCreateUpdate(CliTestCase):
+    def create_json(self, **over):
+        d = {
+            "name": "nginx-502-fix",
+            "description": "修复 502",
+            "metadata": {"tags": ["nginx"], "created": "2026-08-10"},
+            "sections": [{"title": "问题", "content": "出现 502。"}],
+        }
+        d.update(over)
+        return json.dumps(d, ensure_ascii=False)
+
+    def test_create_dry_run_no_write(self):
+        r = self.run_cli("create", "--stdin", "--dry-run", input=self.create_json())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("dry-run", r.stdout)
+        self.assertIn("## 问题", r.stdout)
+        self.assertFalse((self.store / "nginx-502-fix.md").exists())
+
+    def test_create_stdin_real_and_index_sync(self):
+        r = self.run_cli("create", "--stdin", input=self.create_json())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        f = self.store / "nginx-502-fix.md"
+        self.assertTrue(f.is_file())
+        content = f.read_text(encoding="utf-8")
+        self.assertIn("name: nginx-502-fix", content)
+        self.assertIn("## 问题", content)
+        # 索引同步 + 可见于 list / search
+        self.assertIn("nginx-502-fix.md", (self.store / "MEMORY.md").read_text(encoding="utf-8"))
+        self.assertIn("nginx-502-fix", self.run_cli("list").stdout)
+        self.assertIn("nginx-502-fix", self.run_cli("search", "502").stdout)
+
+    def test_create_from_file(self):
+        p = Path(self._tmp.name) / "doc.json"
+        p.write_text(self.create_json(), encoding="utf-8")
+        r = self.run_cli("create", str(p))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.store / "nginx-502-fix.md").is_file())
+
+    def test_create_invalid_schema(self):
+        r = self.run_cli("create", "--stdin", input=self.create_json(sections=[]))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("sections", r.stderr)
+
+    def test_create_requires_input(self):
+        r = self.run_cli("create")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("--stdin", r.stderr)
+
+    def test_create_conflict(self):
+        self.run_cli("create", "--stdin", input=self.create_json())
+        r = self.run_cli("create", "--stdin", input=self.create_json())
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("已存在", r.stderr)
+
+    def test_create_json_dry_run_output(self):
+        r = self.run_cli("create", "--stdin", "--dry-run", "--json", input=self.create_json())
+        obj = json.loads(r.stdout)
+        self.assertTrue(obj["dry_run"])
+        self.assertEqual(obj["file"], "nginx-502-fix.md")
+        self.assertFalse(obj["exists"])
+
+    def test_update_stdin_append(self):
+        self.run_cli("create", "--stdin", input=self.create_json())
+        patch = json.dumps({"ops": [{"op": "append", "title": "方案", "content": "重启 nginx"}]},
+                           ensure_ascii=False)
+        r = self.run_cli("update", "nginx-502-fix", "--stdin", input=patch)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        content = (self.store / "nginx-502-fix.md").read_text(encoding="utf-8")
+        self.assertIn("## 方案\n\n重启 nginx", content)
+        self.assertIn("## 问题\n\n出现 502。", content)
+
+    def test_update_dry_run_no_write(self):
+        self.run_cli("create", "--stdin", input=self.create_json())
+        patch = json.dumps({"ops": [{"op": "append", "title": "方案", "content": "x"}]}, ensure_ascii=False)
+        r = self.run_cli("update", "nginx-502-fix", "--stdin", "--dry-run", input=patch)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("## 方案", (self.store / "nginx-502-fix.md").read_text(encoding="utf-8"))
+
+    def test_update_description_syncs_index(self):
+        self.run_cli("create", "--stdin", input=self.create_json())
+        patch = json.dumps({"description": "新描述 502"}, ensure_ascii=False)
+        r = self.run_cli("update", "nginx-502-fix", "--stdin", input=patch)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        idx = (self.store / "MEMORY.md").read_text(encoding="utf-8")
+        self.assertIn("新描述 502", idx)
+        self.assertNotIn("修复 502", idx)
+
+    def test_update_missing_doc(self):
+        r = self.run_cli("update", "不存在", "--stdin", input="{}")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("未找到", r.stderr)
+
+    def test_update_invalid_patch(self):
+        self.run_cli("create", "--stdin", input=self.create_json())
+        r = self.run_cli("update", "nginx-502-fix", "--stdin", input='{"ops": [{"op": "nope"}]}')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("op", r.stderr)
+
+    def test_create_force_overwrites(self):
+        self.run_cli("create", "--stdin", input=self.create_json())
+        r = self.run_cli("create", "--stdin", "--force", input=self.create_json(description="覆盖版描述"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        content = (self.store / "nginx-502-fix.md").read_text(encoding="utf-8")
+        self.assertIn("覆盖版描述", content)
+        # 描述已覆盖，索引行同步为新描述
+        idx = (self.store / "MEMORY.md").read_text(encoding="utf-8")
+        self.assertIn("覆盖版描述", idx)
+
+    def test_update_replace_missing_title_exits_1(self):
+        self.run_cli("create", "--stdin", input=self.create_json())
+        patch = json.dumps({"ops": [{"op": "replace", "title": "不存在的章节", "content": "x"}]},
+                           ensure_ascii=False)
+        r = self.run_cli("update", "nginx-502-fix", "--stdin", input=patch)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("未找到章节", r.stderr)
+        # 不落盘
+        content = (self.store / "nginx-502-fix.md").read_text(encoding="utf-8")
+        self.assertIn("## 问题", content)
+        self.assertNotIn("## 不存在的章节", content)
+
+    def test_update_same_description_noop(self):
+        self.run_cli("create", "--stdin", input=self.create_json())
+        before = (self.store / "MEMORY.md").read_text(encoding="utf-8")
+        patch = json.dumps({"description": "修复 502"}, ensure_ascii=False)  # 与 create 时相同
+        r = self.run_cli("update", "nginx-502-fix", "--stdin", input=patch)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("无实际变更", r.stdout)
+        self.assertEqual((self.store / "MEMORY.md").read_text(encoding="utf-8"), before)
 
 
 if __name__ == "__main__":

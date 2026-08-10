@@ -1,7 +1,7 @@
 # /mdoc 脚本化改造方案（定稿：单 core + CLI）
 
 > 目标：把 /mdoc 的确定性操作下沉为 **core + CLI**，打包分发，供他人（Claude Code 用户）安装到各自机器、管理各自的修复方案文档。
-> 状态：**方案已定稿**（2026-08-10）· 改造进行中（阶段 1 配置层 ✅；阶段 2 CLI 骨架 ✅，已 code-review）
+> 状态：**方案已定稿**（2026-08-10）· 改造进行中（阶段 1 配置层 ✅；阶段 2 CLI 骨架 ✅，已 code-review；阶段 3 create/update JSON 中间格式 ✅，已 code-review + 修复）
 > 关键取舍：CLI+skills vs MCP 的讨论结论是「**单 core + CLI，MCP 后置**」
 
 ---
@@ -148,6 +148,17 @@
 - `mdoc create/update --stdin --dry-run`，LLM 提取 → JSON → 落盘。
 - **验收**：文档结构 100% 符合 spec，索引与文件同步无误。
 
+**✅ 已完成**（2026-08-10，含两轮 code-review 修复）：core 新增 `normalize_doc` / `render_doc` / `create_doc` / `apply_patch_text` / `update_doc` / `split_sections`（doc.json 校验→渲染→kebab 文件名→索引同步；patch.json 追加/替换/删除章节 + 描述更新；`split_sections` 跳过围栏代码块内的 `##`，update 保留 `node_type` 等未知字段）；CLI 新增 `mdoc create` / `mdoc update`（`<file>|--stdin` + `--dry-run` + `--json`，dry-run 用 unified diff 预览，schema 不合法/文件名冲突退出 1 不落盘）。doc.json / patch.json 中间格式文档写入 README。
+
+**第二轮 code-review 修复**（Standards 1 硬违反 + 5 判断项 / Spec 2 缺失 + 2 越界 + 3 实现错误）：
+- 硬违反：CLI dry-run 用 `Path(...).exists()` 重复实现 core 的冲突规则 → 下沉：`render_doc` 返回 `(rendered, issues)`，`exists` 由 core 计算；`create_doc` 接收 rendered。顺带消除「三次重复 normalize」与 `validate_doc_json` 中间人。
+- Spec 缺失#1：§2.4「覆盖」分支无 CLI 路径 → `mdoc create --force`（core `create_doc(force=True)`，索引行按 file 去重更新）。
+- Spec 实现错误：`replace`/`delete` 目标章节不存在原来静默无操作 → 改为 ValueError 退出 1（报「未找到章节」）；update 无实际变更时不再重排空白重写文件（语义比较章节序列+描述，相等即 `changed=False` 原样返回）；`_set_description_line` 限定只在 frontmatter 块内改写（不再误命中正文列顶的 `description:` 段落）。
+- 越界#1：create 里的非阻塞风格提示（`_style_warnings`）移除 —— §10 只授权 `mdoc validate --style` 做风格校验。
+- **边界决策**：§1.2「`metadata.tags` 含 `修复` 自动打标」是推荐元数据（不参与列表过滤），属 skill 组装 doc.json 时的 LLM 行为，**不进 core** —— 公共工具不对每篇文档强加中文标签。
+- 判断项：`_OPS` 常量收敛 op 字面量、`_render_frontmatter` docstring 字段计数笔误修正。
+- 98/98 单测全绿。
+
 ### 阶段 4 — 打包 + 通用 skill 模板
 - `pyproject.toml` 打包，`mdoc init` 引导；skill 模板参数化（零硬编码路径）。
 - **验收**：在一台"陌生"机器（临时目录）走通 init → 建库 → 搜索 → 删除全流程。
@@ -213,3 +224,10 @@
 - 真实库回归：`mdoc list` TOTAL=10 不变；`mdoc search nginx` 命中 7 篇（含 §1.2 过滤，非 mdoc 不再混入）；desc 引号已剥离
 - 临时库端到端：init → search → `validate --style`（sanitized 路径 + 密钥泄漏检出）→ `delete --yes` 索引同步 ✅
 - code-review（两轴并行）：Standards 1 硬违反（delete 在 CLI 直接 unlink，绕过 core 唯一数据写入方）→ 已下沉 `core.delete_doc`；Spec 3 处缺口 → 已修（`init --json` / `init_store` 幂等不覆盖 / README 越界 `create` 与 `--store` 声明不符）；若干判断项（`_known_docs` 消解别名重复、索引改写助手、单版本源）已顺手落实
+
+### 阶段 3 验证记录（2026-08-10）
+
+- 98/98 单测全绿（阶段 2 的 53 + 阶段 3 新增 45：doc.json 校验/渲染/create/章节切分/update 核心 + CLI 端到端，含 `--force` 覆盖、replace/delete 目标缺失、无变更不重写等评审回归）
+- 临时库端到端：init → `create --stdin --dry-run`（预览不落盘）→ `create --stdin` 真实落盘（frontmatter 六核心字段齐全、`description` 含 `: ` 自动加引号、章节渲染为 `##` 块）→ validate 零问题 → `update --dry-run`（unified diff，不落盘）→ `update` 追加章节 + 描述变更同步索引 → `delete` 清文件+索引 ✅
+- 真实库回归：`list` TOTAL=10 不变；对现网库 `create`/`update` 双 dry-run 后 MEMORY.md 与文件清单哈希逐字节不变（零写入）✅
+- 兼容性：update 保留 frontmatter 未知字段（`node_type: memory` 等）✅；`split_sections` 正确跳过代码围栏内 `##`（不误切）✅

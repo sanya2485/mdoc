@@ -10,12 +10,15 @@ mdoc CLI —— core 的薄壳。确定性操作全在 core，本模块只做参
   mdoc list [--json] [--names]           列出全部 mdoc 文档
   mdoc search <关键词> [--page N] [--json]  搜索
   mdoc get <refname> [--json]            查看单篇全文
+  mdoc create <doc.json>|--stdin [--dry-run] [--force] [--json]  从 doc.json 创建（校验→落盘→索引）
+  mdoc update <refname> <patch.json>|--stdin [--dry-run] [--json]  追加/替换/删除章节
   mdoc delete <refname> --yes [--json]   删文件 + 同步索引
   mdoc slugify <标题>                     kebab-case
   mdoc validate <refname> [--style] [--json]  确定性校验
 """
 
 import argparse
+import difflib
 import json
 import sys
 from pathlib import Path
@@ -177,6 +180,117 @@ def cmd_validate(args):
     return 0 if ok else 1
 
 
+def _require_single_input(args, what):
+    """<file> 与 --stdin 只能二选一。返回 None（通过）或退出码。"""
+    if args.stdin and args.file:
+        print(f"错误：{what} 的 <file> 与 --stdin 只能二选一", file=sys.stderr)
+        return 1
+    if not args.stdin and not args.file:
+        print(f"错误：需要 {what} JSON 文件路径，或 --stdin 从标准输入读取", file=sys.stderr)
+        return 1
+    return None
+
+
+def _load_json_input(args):
+    """读取并解析 JSON：--stdin 或文件路径。JSON 非法抛 ValueError。"""
+    if args.stdin:
+        data = sys.stdin.read()
+    else:
+        data = Path(args.file).read_text(encoding="utf-8")
+    try:
+        return json.loads(data)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"JSON 解析失败：{e}") from e
+
+
+def cmd_create(args):
+    cfg = core.load_config(args.store)
+    _need_store(cfg)
+    err = _require_single_input(args, "doc.json")
+    if err:
+        return err
+    try:
+        doc = _load_json_input(args)
+    except (ValueError, OSError) as e:
+        print(f"错误：{e}", file=sys.stderr)
+        return 1
+    rendered, issues = core.render_doc(doc, cfg)  # 校验 + 渲染一次完成（含 exists）
+    if issues:
+        print("错误：doc.json 不符合规范：", file=sys.stderr)
+        for it in issues:
+            print(f"  - {it}", file=sys.stderr)
+        return 1
+    if args.dry_run:
+        if args.json:
+            print(json.dumps({"dry_run": True, "file": rendered["file"], "name": rendered["name"],
+                              "exists": rendered["exists"], "style": rendered["style"],
+                              "text": rendered["text"]},
+                             ensure_ascii=False, indent=2))
+        else:
+            print(f"[dry-run] 将创建：{rendered['file']}（参考名 {rendered['name']}，风格 {rendered['style']}）"
+                  + ("　⚠️ 文件已存在，落盘将失败" if rendered["exists"] else ""))
+            print("--- 预览 ---")
+            print(rendered["text"])
+            print("--- 预览结束（--dry-run 未落盘）---")
+        return 0
+    try:
+        res = core.create_doc(cfg, rendered, force=args.force)
+    except FileExistsError as e:
+        print(f"错误：{e}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+    else:
+        print(f"✅ 文档已创建：{res['file']}（参考名 {res['name']}）")
+        print(f"   索引已同步：{cfg['index_file']}")
+        print(f"   查看: mdoc get {res['name']}    更新: mdoc update {res['name']}")
+    return 0
+
+
+def cmd_update(args):
+    cfg = core.load_config(args.store)
+    _need_store(cfg)
+    err = _require_single_input(args, "patch.json")
+    if err:
+        return err
+    try:
+        patch = _load_json_input(args)
+        if args.dry_run:
+            r = core.apply_patch_text(cfg, args.refname, patch)
+        else:
+            r = core.update_doc(cfg, args.refname, patch)
+    except (FileNotFoundError, ValueError, OSError) as e:
+        print(f"错误：{e}", file=sys.stderr)
+        return 1
+    if args.dry_run:
+        diff = list(difflib.unified_diff(
+            r["old_text"].splitlines(keepends=True),
+            r["new_text"].splitlines(keepends=True),
+            fromfile="当前", tofile="修改后"))
+        if args.json:
+            print(json.dumps({"dry_run": True, "file": r["file"], "name": r["name"],
+                              "changed": r["changed"], "ops": patch.get("ops", []),
+                              "description": r["description"], "diff": diff},
+                             ensure_ascii=False, indent=2))
+        else:
+            print(f"[dry-run] 将更新：{r['file']}（参考名 {r['name']}）")
+            if r["changed"]:
+                print("".join(diff))
+            else:
+                print("   无实际变更（当前文档已是该状态）。")
+        return 0
+    if args.json:
+        print(json.dumps(r, ensure_ascii=False, indent=2))
+    else:
+        print(f"✅ 已更新：{r['file']}（参考名 {r['name']}）")
+        if r["changed"]:
+            print(f"   文件已写入；描述变更 → 索引已同步：{cfg['index_file']}" if r["index_synced"]
+                  else "   文件已写入。")
+        else:
+            print("   无实际变更。")
+    return 0
+
+
 # --- 参数解析 ---
 
 def build_parser():
@@ -239,6 +353,24 @@ def build_parser():
     sp.add_argument("refname")
     sp.add_argument("--style", action="store_true", help="附加内容风格校验（§1.5）")
     sp.set_defaults(func=cmd_validate)
+
+    sp = sub.add_parser("create", help="从 doc.json 创建文档（校验 → 落盘 → 索引同步）")
+    add_store(sp)
+    add_json(sp)
+    sp.add_argument("file", nargs="?", help="doc.json 文件路径")
+    sp.add_argument("--stdin", action="store_true", help="从标准输入读取 doc.json")
+    sp.add_argument("--dry-run", action="store_true", help="仅渲染预览，不落盘（skill 确认流程用）")
+    sp.add_argument("--force", action="store_true", help="文件名已存在时覆盖（§2.4 覆盖分支）")
+    sp.set_defaults(func=cmd_create)
+
+    sp = sub.add_parser("update", help="按 patch.json 更新文档（追加/替换/删除章节 + 描述）")
+    add_store(sp)
+    add_json(sp)
+    sp.add_argument("refname")
+    sp.add_argument("file", nargs="?", help="patch.json 文件路径")
+    sp.add_argument("--stdin", action="store_true", help="从标准输入读取 patch.json")
+    sp.add_argument("--dry-run", action="store_true", help="仅出 diff 预览，不落盘")
+    sp.set_defaults(func=cmd_update)
 
     return p
 

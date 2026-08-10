@@ -4,6 +4,7 @@
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -316,6 +317,249 @@ class TestInitStore(MdocTestCase):
         cfg = core.load_config(store_override=str(target))
         self.assertEqual(cfg["index_file"], "INDEX.md")
         self.assertEqual(cfg["style_default"], "partial")
+
+
+class TestDocJson(MdocTestCase):
+    def _doc(self, **over):
+        d = {
+            "name": "nginx-502-fix",
+            "description": "修复 nginx 502",
+            "metadata": {"tags": ["nginx"], "created": "2026-08-10", "style": "partial"},
+            "sections": [{"title": "问题", "content": "出现 502。"}],
+        }
+        d.update(over)
+        return d
+
+    def test_valid_doc_ok(self):
+        _, issues = core.normalize_doc(self._doc(), self.cfg())
+        self.assertEqual(issues, [])
+
+    def test_missing_name_and_desc(self):
+        _, issues = core.normalize_doc(self._doc(name="  ", description=""), self.cfg())
+        self.assertTrue(any("缺 name" in i for i in issues))
+        self.assertTrue(any("缺 description" in i for i in issues))
+
+    def test_bad_created(self):
+        _, issues = core.normalize_doc(self._doc(metadata={"created": "昨天"}), self.cfg())
+        self.assertTrue(any("YYYY-MM-DD" in i for i in issues))
+
+    def test_bad_style(self):
+        _, issues = core.normalize_doc(self._doc(metadata={"style": "不存在"}), self.cfg())
+        self.assertTrue(any("style" in i for i in issues))
+
+    def test_empty_sections(self):
+        _, issues = core.normalize_doc(self._doc(sections=[]), self.cfg())
+        self.assertTrue(any("sections" in i for i in issues))
+
+    def test_pure_chinese_name_needs_filename(self):
+        # 纯中文名没有任何 ASCII 字符 → slug 为空，必须提供 filename
+        _, issues = core.normalize_doc(self._doc(name="死锁修复"), self.cfg())
+        self.assertTrue(any("filename" in i for i in issues))
+
+    def test_mixed_name_gets_slug_filename(self):
+        norm, issues = core.normalize_doc(self._doc(name="MySQL 死锁修复"), self.cfg())
+        self.assertEqual(issues, [])
+        self.assertEqual(norm["filename"], "mysql.md")
+
+    def test_created_defaults_today(self):
+        norm, issues = core.normalize_doc(self._doc(metadata={"tags": []}), self.cfg())
+        self.assertEqual(issues, [])
+        self.assertEqual(norm["metadata"]["created"], time.strftime("%Y-%m-%d"))
+
+    def test_style_default(self):
+        norm, _ = core.normalize_doc(self._doc(metadata={}), self.cfg())
+        self.assertEqual(norm["metadata"]["style"], "partial")
+
+    def test_filename_override_sanitized(self):
+        norm, issues = core.normalize_doc(self._doc(name="Foo", filename="../Evil Name.md"), self.cfg())
+        self.assertEqual(issues, [])
+        self.assertEqual(norm["filename"], "evil-name.md")
+
+    def test_render_doc_invalid_returns_issues(self):
+        rendered, issues = core.render_doc(self._doc(name=""), self.cfg())
+        self.assertIsNone(rendered)
+        self.assertTrue(any("缺 name" in i for i in issues))
+        self.assertTrue(any("filename" in i for i in issues))  # name 空 → slug 也空
+
+
+class TestRender(MdocTestCase):
+    def test_render_spec_frontmatter(self):
+        doc = {
+            "name": "nginx-502-fix",
+            "description": "修复 502: 网关超时",  # ASCII 冒号+空格 → YAML 需加引号
+            "metadata": {"tags": ["nginx", "修复"], "created": "2026-08-10", "blog_ready": False, "style": "partial"},
+            "sections": [{"title": "问题", "content": "出现 502。"}],
+        }
+        rendered, issues = core.render_doc(doc, self.cfg())
+        self.assertEqual(issues, [])
+        self.assertEqual(rendered["file"], "nginx-502-fix.md")
+        text = rendered["text"]
+        self.assertTrue(text.startswith("---\nname: nginx-502-fix\n"))
+        self.assertIn('description: "修复 502: 网关超时"', text)  # 含 `: ` 必须加引号（§3.4）
+        self.assertIn("metadata:\n  type: reference\n  tags: [nginx, 修复]\n"
+                      "  blog_ready: false\n  created: 2026-08-10\n  style: partial\n---", text)
+        self.assertTrue(text.endswith("## 问题\n\n出现 502。\n"))
+
+
+class TestCreateDoc(MdocTestCase):
+    def _doc(self, **over):
+        d = {
+            "name": "mysql-deadlock-fix",
+            "description": "MySQL 死锁修复",
+            "metadata": {"tags": ["mysql"], "created": "2026-08-10"},
+            "sections": [{"title": "根因", "content": "间隙锁"}, {"title": "修复方案", "content": "加索引"}],
+        }
+        d.update(over)
+        return d
+
+    def test_create_writes_file_and_index(self):
+        rendered, issues = core.render_doc(self._doc(), self.cfg())
+        self.assertEqual(issues, [])
+        res = core.create_doc(self.cfg(), rendered)
+        self.assertTrue(res["index_synced"])
+        self.assertTrue((self.store / "mysql-deadlock-fix.md").is_file())
+        entries = core.read_index(self.cfg())
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["file"], "mysql-deadlock-fix.md")
+        self.assertEqual(entries[0]["title"], "mysql-deadlock-fix")
+        # 读回结构 100% 符合 spec，且确定性校验零问题
+        doc = core.read_doc(self.cfg(), "mysql-deadlock-fix")
+        self.assertEqual(doc["fm"]["name"], "mysql-deadlock-fix")
+        self.assertEqual(doc["fm"]["type"], "reference")
+        self.assertEqual(doc["fm"]["created"], "2026-08-10")
+        self.assertEqual(doc["fm"]["style"], "partial")
+        self.assertIn("## 根因", doc["text"])
+        self.assertIn("## 修复方案", doc["text"])
+        self.assertEqual(core.validate_doc(self.cfg(), "mysql-deadlock-fix", check_style=False)["issues"], [])
+
+    def test_create_conflict(self):
+        rendered, _ = core.render_doc(self._doc(), self.cfg())
+        core.create_doc(self.cfg(), rendered)
+        with self.assertRaises(FileExistsError):
+            core.create_doc(self.cfg(), rendered)
+
+    def test_create_force_overwrites(self):
+        rendered, _ = core.render_doc(self._doc(), self.cfg())
+        core.create_doc(self.cfg(), rendered)
+        # 覆盖分支（§2.4）：同名同渲染直接覆盖，不抛 FileExistsError
+        res = core.create_doc(self.cfg(), rendered, force=True)
+        self.assertTrue(res["index_synced"])
+
+    def test_create_invalid_raises(self):
+        rendered, issues = core.render_doc(self._doc(name=""), self.cfg())
+        self.assertIsNone(rendered)
+        self.assertTrue(issues)
+
+
+class TestSplitSections(MdocTestCase):
+    def test_split_basic(self):
+        preamble, sections = core.split_sections("---\nx\n---\n\n## 问题\n\n内容\n\n## 根因\n\n根\n")
+        self.assertIn("---", preamble)
+        self.assertEqual([s["title"] for s in sections], ["问题", "根因"])
+        self.assertEqual(sections[0]["content"], "内容")
+        self.assertEqual(sections[1]["content"], "根")
+
+    def test_split_skips_code_fence_heading(self):
+        text = "---\nx\n---\n\n## 问题\n\n```\n## 不是标题\n```\n\n## 根因\n\nx\n"
+        _, sections = core.split_sections(text)
+        self.assertEqual([s["title"] for s in sections], ["问题", "根因"])
+
+    def test_split_h3_not_h2(self):
+        _, sections = core.split_sections("---\nx\n---\n\n## 问题\n\n### 子标题\n\n内容\n")
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0]["title"], "问题")
+        self.assertIn("### 子标题", sections[0]["content"])
+
+    def test_no_sections(self):
+        preamble, sections = core.split_sections("---\nx\n---\n")
+        self.assertEqual(sections, [])
+        self.assertIn("---", preamble)
+
+
+class TestUpdateCore(MdocTestCase):
+    def setUp(self):
+        super().setUp()
+        rendered, issues = core.render_doc({
+            "name": "demo-fix",
+            "description": "旧描述",
+            "metadata": {"tags": ["a"], "created": "2026-08-10"},
+            "sections": [{"title": "问题", "content": "旧内容"}],
+        }, self.cfg())
+        self.assertEqual(issues, [])
+        self.doc = core.create_doc(self.cfg(), rendered)
+
+    def _text(self):
+        return (self.store / "demo-fix.md").read_text(encoding="utf-8")
+
+    def test_append(self):
+        r = core.update_doc(self.cfg(), "demo-fix",
+                            {"ops": [{"op": "append", "title": "方案", "content": "新方案"}]})
+        self.assertTrue(r["changed"])
+        text = self._text()
+        self.assertIn("## 方案\n\n新方案", text)
+        self.assertIn("## 问题\n\n旧内容", text)
+
+    def test_replace(self):
+        core.update_doc(self.cfg(), "demo-fix",
+                        {"ops": [{"op": "replace", "title": "问题", "content": "新内容"}]})
+        text = self._text()
+        self.assertIn("## 问题\n\n新内容", text)
+        self.assertNotIn("旧内容", text)
+
+    def test_delete(self):
+        core.update_doc(self.cfg(), "demo-fix", {"ops": [{"op": "delete", "title": "问题"}]})
+        text = self._text()
+        self.assertNotIn("## 问题", text)
+
+    def test_description_update_syncs_index_and_preserves_fields(self):
+        # 模拟 auto-memory 保留字段，验证 update 不丢它们（§1.3 兼容说明）
+        path = self.store / "demo-fix.md"
+        path.write_text(path.read_text(encoding="utf-8")
+                        .replace("---\n", "---\nnode_type: memory\noriginSessionId: abc123\n", 1),
+                        encoding="utf-8")
+        r = core.update_doc(self.cfg(), "demo-fix", {"description": "新描述: 含冒号"})
+        self.assertTrue(r["changed"])
+        self.assertTrue(r["index_synced"])
+        text = self._text()
+        self.assertIn("node_type: memory", text)
+        self.assertIn("originSessionId: abc123", text)
+        self.assertIn('description: "新描述: 含冒号"', text)
+        self.assertEqual(core.read_index(self.cfg())[0]["desc"], "新描述: 含冒号")
+
+    def test_replace_same_content_noop(self):
+        r = core.apply_patch_text(self.cfg(), "demo-fix",
+                                  {"ops": [{"op": "replace", "title": "问题", "content": "旧内容"}]})
+        self.assertFalse(r["changed"])
+        self.assertEqual(r["new_text"], r["old_text"])  # 不重排空白
+
+    def test_empty_ops_noop(self):
+        r = core.apply_patch_text(self.cfg(), "demo-fix", {"ops": []})
+        self.assertFalse(r["changed"])
+
+    def test_replace_missing_title_raises(self):
+        with self.assertRaisesRegex(ValueError, "未找到章节"):
+            core.apply_patch_text(self.cfg(), "demo-fix",
+                                  {"ops": [{"op": "replace", "title": "不存在的章节", "content": "x"}]})
+
+    def test_delete_missing_title_raises(self):
+        with self.assertRaisesRegex(ValueError, "未找到章节"):
+            core.apply_patch_text(self.cfg(), "demo-fix", {"ops": [{"op": "delete", "title": "不存在"}]})
+
+    def test_description_same_value_noop(self):
+        # 描述与现网相同：不算变更，不触发索引同步（避免无谓重写索引）
+        r = core.apply_patch_text(self.cfg(), "demo-fix", {"description": "旧描述"})
+        self.assertFalse(r["changed"])
+        self.assertIsNone(r["description"])
+
+    def test_noop_patch_does_not_rewrite_irregular_doc(self):
+        # 文档正文含不规则空行（非规范格式）；无实际变更的 patch 不应重写文件
+        path = self.store / "demo-fix.md"
+        irregular = path.read_text(encoding="utf-8").replace("## 问题\n\n旧内容", "## 问题\n\n\n旧内容\n")
+        path.write_text(irregular, encoding="utf-8")
+        before = path.read_bytes()
+        r = core.apply_patch_text(self.cfg(), "demo-fix", {"description": "旧描述"})
+        self.assertFalse(r["changed"])
+        self.assertEqual(path.read_bytes(), before)  # 文件字节未动
 
 
 if __name__ == "__main__":

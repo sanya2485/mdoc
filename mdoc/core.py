@@ -13,6 +13,7 @@ mdoc 核心模块 —— 确定性规则的单一事实来源。
   < 环境变量 MDOC_DIR / 命令行 --store
 """
 
+import json
 import os
 import re
 import time
@@ -453,6 +454,341 @@ def validate_doc(cfg, refname, check_style=True) -> dict:
         for kind, frag in check_style_violations(doc["text"], style):
             issues.append({"type": "style", "msg": f"[{kind}] {frag}"})
     return {"file": doc["file"], "name": doc["name"], "style": style, "issues": issues}
+
+
+# ---------------------------------------------------------------------------
+# create / update —— doc.json / patch.json 中间格式（阶段 3）
+#
+# skill 流程：LLM 从对话提取 → 组装 doc.json（sections + metadata）
+#   → `mdoc create --stdin --dry-run` 出预览 → 用户确认 → 去掉 --dry-run 落盘。
+# 所有写操作二次确认在 skill 交互层；CLI 的 --dry-run 保证预览不落盘。
+# 校验 / 渲染 / 文件名 / 索引同步全部在此确定性完成（core 唯一数据写入方）。
+#
+# doc.json 结构（create 输入）：
+#   { name, description, metadata{tags, blog_ready, created, style},
+#     sections:[{title, content}], filename? }
+# patch.json 结构（update 输入）：
+#   { ops:[{op: append|replace|delete, title, content?}], description? }
+#   —— op=delete 不需要 content；description 更新会同步索引行。
+#   update 不改变 blog_ready（SKILL.md §2.5）。
+# ---------------------------------------------------------------------------
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_YAML_SPECIAL_RE = re.compile(r'[:#\[\]{},&\*!|>%@`"\'\\]|\s$|^\s')
+_H2_RE = re.compile(r"^##\s+(.*?)\s*$")
+
+
+def _yaml_quote(v):
+    """标量值的 YAML 安全表示：含特殊字符时用 JSON 双引号转义（合法 YAML 标量）。"""
+    v = str(v)
+    if v and not _YAML_SPECIAL_RE.search(v):
+        return v
+    return json.dumps(v, ensure_ascii=False)
+
+
+def _render_frontmatter(name, description, meta, cfg):
+    """按 §1.3 渲染 frontmatter：name / description + metadata(type, tags, blog_ready, created, style)。"""
+    tags = meta.get("tags", [])
+    lines = [
+        "---",
+        f"name: {_yaml_quote(name)}",
+        f"description: {_yaml_quote(description)}",
+        "metadata:",
+        f"  type: {cfg['reference_type']}",
+        "  tags: [" + ", ".join(tags) + "]" if tags else "  tags: []",
+        f"  blog_ready: {'true' if meta.get('blog_ready') else 'false'}",
+        f"  created: {meta.get('created')}",
+        f"  style: {meta.get('style')}",
+        "---",
+    ]
+    return "\n".join(lines)
+
+
+def normalize_doc(doc, cfg):
+    """校验并规范化 doc.json。返回 (normalized, issues)；issues 为空才可用于落盘。
+
+    normalized = {name, description, metadata{type,tags,blog_ready,created,style},
+                  sections, filename}。缺省值：created=今天、style=配置默认、blog_ready=False。
+    文件名：filename 覆盖优先（slugify 净化），否则 slugify(name)；slug 为空则要求 filename。
+    """
+    issues = []
+    if not isinstance(doc, dict):
+        return None, ["doc 必须是 JSON 对象"]
+    name = doc.get("name")
+    if not isinstance(name, str) or not name.strip():
+        issues.append("缺 name（参考名）")
+        name = ""
+    else:
+        name = name.strip()
+    description = doc.get("description")
+    if not isinstance(description, str) or not description.strip():
+        issues.append("缺 description（一句话概述）")
+        description = ""
+    else:
+        description = description.strip()
+    meta = doc.get("metadata") or {}
+    if not isinstance(meta, dict):
+        issues.append("metadata 必须是对象")
+        meta = {}
+    tags = meta.get("tags", [])
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        issues.append("metadata.tags 必须是字符串数组")
+        tags = []
+    blog_ready = meta.get("blog_ready", False)
+    if not isinstance(blog_ready, bool):
+        issues.append("metadata.blog_ready 必须是布尔值")
+        blog_ready = False
+    created = meta.get("created")
+    if created is None or created == "":
+        created = time.strftime("%Y-%m-%d")
+    created = str(created)
+    if not _DATE_RE.match(created):
+        issues.append(f"metadata.created 应为 YYYY-MM-DD，当前：{created}")
+    style = meta.get("style")
+    if style is None:
+        style = resolve_style(None, cfg)
+    else:
+        style = str(style)
+        if style not in load_style(cfg):
+            issues.append(f"metadata.style 应为 {sorted(load_style(cfg))} 之一")
+    sections = doc.get("sections")
+    if not isinstance(sections, list) or not sections:
+        issues.append("sections 至少需要一个章节")
+        sections = []
+    else:
+        cleaned = []
+        for i, s in enumerate(sections):
+            if not isinstance(s, dict):
+                issues.append(f"sections[{i}] 必须是对象")
+                continue
+            title = s.get("title")
+            content = s.get("content", "")
+            if not isinstance(title, str) or not title.strip():
+                issues.append(f"sections[{i}] 缺 title")
+                continue
+            if not isinstance(content, str):
+                issues.append(f"sections[{i}] 缺 content（字符串）")
+                content = ""
+            cleaned.append({"title": title.strip(), "content": content.strip("\n")})
+        sections = cleaned
+    filename = None
+    raw = doc.get("filename")
+    if raw is not None:
+        if not isinstance(raw, str) or not raw.strip():
+            issues.append("filename 必须是字符串")
+        else:
+            stem = slugify(raw.rsplit(".", 1)[0] if "." in raw else raw)
+            filename = (stem + ".md") if stem else None
+            if not filename:
+                issues.append(f"filename 无法转成合法文件名：{raw}")
+    if not filename:
+        stem = slugify(name)
+        filename = (stem + ".md") if stem else None
+        if not filename:
+            issues.append("name 无法生成 ASCII 文件名，请提供 filename（kebab-case，如 nginx-502-fix）")
+    return {
+        "name": name,
+        "description": description,
+        "metadata": {
+            "type": cfg["reference_type"],
+            "tags": [str(t).strip() for t in tags if str(t).strip()],
+            "blog_ready": blog_ready,
+            "created": created,
+            "style": style,
+        },
+        "sections": sections,
+        "filename": filename,
+    }, issues
+
+
+def render_sections(sections):
+    """章节列表 → 正文 markdown（每个章节 `## 标题` + 空行 + 内容，块间空行分隔）。"""
+    blocks = []
+    for s in sections:
+        title = s["title"].strip()
+        content = s.get("content", "").strip("\n")
+        block = f"## {title}"
+        if content:
+            block += "\n\n" + content
+        blocks.append(block)
+    return "\n\n".join(blocks)
+
+
+def split_sections(text):
+    """按 H2 章节切分文档正文（跳过围栏代码块内的 `##` 行）。
+
+    返回 (preamble, [{'title','content'}, ...])；preamble = frontmatter 及第一个
+    H2 之前的所有内容，原样保留（含未知字段，如 node_type: memory）。
+    """
+    h2s = _h2_matches(text)
+    if not h2s:
+        return text.rstrip("\n") + "\n", []
+    preamble = text[:h2s[0][0]]
+    sections = []
+    for i, (start, title) in enumerate(h2s):
+        end = h2s[i + 1][0] if i + 1 < len(h2s) else len(text)
+        block = text[start:end]
+        content = block.split("\n", 1)[1].strip("\n") if "\n" in block else ""
+        sections.append({"title": title, "content": content})
+    return preamble, sections
+
+
+def _h2_matches(text):
+    """定位 H2 章节标题行（```` ``` ````/`~~~` 围栏代码块内的 ## 不算标题）。返回 [(offset, title), ...]。"""
+    matches = []
+    in_fence = False
+    offset = 0
+    for ln in text.split("\n"):
+        stripped = ln.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+        elif not in_fence:
+            m = _H2_RE.match(ln)
+            if m and m.group(1):
+                matches.append((offset, m.group(1)))
+        offset += len(ln) + 1
+    return matches
+
+
+def render_doc(doc, cfg):
+    """doc.json → 落盘文本（不写盘）。返回 (rendered, issues)：
+    合法 → (rendered, [])，rendered = {file, name, description, style, exists, text}；
+    schema 不合法 → (None, issues 字符串列表)。文件名冲突与否由 `exists` 字段给出（不进 CLI 逻辑）。"""
+    norm, issues = normalize_doc(doc, cfg)
+    if issues:
+        return None, issues
+    fm = _render_frontmatter(norm["name"], norm["description"], norm["metadata"], cfg)
+    body = render_sections(norm["sections"])
+    text = fm + "\n\n" + body + "\n"
+    target = Path(cfg["store_dir"]) / norm["filename"]
+    return {
+        "file": norm["filename"],
+        "name": norm["name"],
+        "description": norm["description"],
+        "style": norm["metadata"]["style"],
+        "exists": target.exists(),
+        "text": text,
+    }, []
+
+
+def create_doc(cfg, rendered, force=False):
+    """把 render_doc 的结果写盘 + 索引同步（core 内完成，唯一数据写入方）。
+    文件名已存在且未 --force 抛 FileExistsError；force=True 覆盖（§2.4 覆盖分支）。"""
+    target = Path(cfg["store_dir"]) / rendered["file"]
+    if target.exists() and not force:
+        raise FileExistsError(
+            f"文件名已存在：{rendered['file']}。如需修改请用 `mdoc update {rendered['name']}`，"
+            f"换 name/filename，或用 --force 覆盖。"
+        )
+    target.write_text(rendered["text"], encoding="utf-8")
+    add_index_entry(cfg, rendered["name"], rendered["file"], rendered["description"])
+    return {"file": rendered["file"], "name": rendered["name"], "path": str(target), "index_synced": True}
+
+
+def _set_description_line(text, new_desc):
+    """在 frontmatter 块内更新 description 行（找不到则在 name 行后插入），保留其它行原样。
+    只改写第一个 frontmatter 块内的行，避免误命中正文里列顶格的 `description:` 段落。"""
+    fm = _FRONTMATTER_RE.match(text)
+    if not fm:
+        raise ValueError("文档缺少 frontmatter，无法更新描述")
+    new_line = f"description: {_yaml_quote(new_desc)}"
+    lines = fm.group(0).splitlines(keepends=True)
+    for i, ln in enumerate(lines):
+        if re.match(r"^description:", ln):
+            lines[i] = new_line + ("\n" if ln.endswith("\n") else "")
+            return text[:fm.start()] + "".join(lines) + text[fm.end():]
+    for i, ln in enumerate(lines):
+        if re.match(r"^name:", ln):
+            lines.insert(i + 1, new_line + "\n")
+            return text[:fm.start()] + "".join(lines) + text[fm.end():]
+    raise ValueError("frontmatter 中找不到 name 或 description 行，无法更新描述")
+
+
+_OPS = ("append", "replace", "delete")
+
+
+def apply_patch_text(cfg, refname, patch):
+    """计算 update 后的文档文本（不写盘）。返回 {file,name,path,old_text,new_text,changed,description}。
+    replace/delete 目标章节不存在 → ValueError（不静默）；语义无变化（章节序列与描述都没变）
+    → changed=False 且 new_text 原样，避免把非规范空白重排成规范格式（spurious 变更）。"""
+    doc = read_doc(cfg, refname)
+    if not isinstance(patch, dict):
+        raise ValueError("patch 必须是 JSON 对象")
+    ops = patch.get("ops")
+    if ops is None:
+        ops = []
+    if not isinstance(ops, list):
+        raise ValueError("patch.ops 必须是数组")
+    for op in ops:
+        if not isinstance(op, dict) or op.get("op") not in _OPS:
+            raise ValueError("patch.ops[] 需含 op: append|replace|delete")
+        title = op.get("title")
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError(f"op {op.get('op')} 缺 title")
+        if op["op"] != "delete" and not isinstance(op.get("content"), str):
+            raise ValueError(f"op {op['op']} 缺 content（字符串）")
+    new_desc = patch.get("description")
+    if new_desc is not None and not isinstance(new_desc, str):
+        raise ValueError("patch.description 必须是字符串")
+    preamble, sections = split_sections(doc["text"])
+    orig_sections = list(sections)
+    missing = []
+    for op in ops:
+        op_name = op["op"]
+        title = op["title"].strip()
+        if op_name in ("replace", "delete") and title not in {s["title"] for s in sections}:
+            missing.append(title)
+        if op_name == "append":
+            sections.append({"title": title, "content": op.get("content", "").strip("\n")})
+        elif op_name == "replace":
+            sections = [
+                {"title": title, "content": op.get("content", "").strip("\n")} if s["title"] == title else s
+                for s in sections
+            ]
+        else:  # delete
+            sections = [s for s in sections if s["title"] != title]
+    if missing:
+        raise ValueError(f"未找到章节：{'、'.join(sorted(set(missing)))}（update 的 replace/delete 目标必须已存在）")
+    old_desc = doc["fm"].get("description")
+    desc_changed = new_desc is not None and new_desc != old_desc
+    if sections == orig_sections and not desc_changed:
+        # 语义无变化：不重渲染、不落盘，避免把非规范空白重排成规范格式（spurious 变更）
+        return {
+            "file": doc["file"], "name": doc["name"], "path": doc["path"],
+            "old_text": doc["text"], "new_text": doc["text"],
+            "changed": False, "description": None,
+        }
+    body = render_sections(sections)
+    new_text = (preamble.rstrip() + "\n\n" + body + "\n") if body else (preamble.rstrip() + "\n")
+    if desc_changed:
+        new_text = _set_description_line(new_text, new_desc)
+    return {
+        "file": doc["file"],
+        "name": doc["name"],
+        "path": doc["path"],
+        "old_text": doc["text"],
+        "new_text": new_text,
+        "changed": new_text != doc["text"],
+        "description": new_desc if desc_changed else None,
+    }
+
+
+def update_doc(cfg, refname, patch):
+    """apply_patch_text → 写盘 + 描述变更时同步索引。返回 {file,name,description,changed,index_synced}。"""
+    r = apply_patch_text(cfg, refname, patch)
+    index_synced = False
+    if r["changed"]:
+        Path(r["path"]).write_text(r["new_text"], encoding="utf-8")
+    if r["description"] is not None:
+        add_index_entry(cfg, r["name"], r["file"], r["description"].strip())
+        index_synced = True
+    return {
+        "file": r["file"],
+        "name": r["name"],
+        "description": r["description"],
+        "changed": r["changed"],
+        "index_synced": index_synced,
+    }
 
 
 # ---------------------------------------------------------------------------
