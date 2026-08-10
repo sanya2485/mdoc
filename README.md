@@ -16,11 +16,23 @@
 
 **① 安装命令**
 
+macOS / Linux（Terminal）：
+
 ```bash
 git clone https://github.com/sanya2485/mdoc.git
 cd mdoc
-pip install -e .
+python3 -m pip install -e .
 ```
+
+Windows（PowerShell）：
+
+```powershell
+git clone https://github.com/sanya2485/mdoc.git
+cd mdoc
+py -m pip install -e .
+```
+
+> 💡 统一用 `python3 -m pip`（macOS/Linux）或 `py -m pip`（Windows），避免裸 `pip` 绑到错误的 Python。Linux 系统 Python（Ubuntu 23+ / Debian 12+）若报 `error: externally-managed-environment`，先建虚拟环境再装：`python3 -m venv .venv && source .venv/bin/activate && pip install -e .`。Windows 装完若找不到 `mdoc` 命令：把 Python 的 Scripts 目录加入 PATH 后重开终端。
 
 **② 建库**
 

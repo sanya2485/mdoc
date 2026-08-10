@@ -15,11 +15,13 @@
 
 ## 2. 三步装上
 
+macOS / Linux（Terminal）：
+
 ```bash
 # ① 安装命令（从 GitHub 开源仓库装）
 git clone https://github.com/sanya2485/mdoc.git
 cd mdoc
-pip install -e .
+python3 -m pip install -e .
 
 # ② 建库：目录 + 索引 + 配置 + skill 模板 SKILL.md 一次到位，并注册进用户级配置（任意目录可用）
 mdoc init ~/mdoc-docs
@@ -29,6 +31,25 @@ mdoc install-skill
 #    重启 Claude Code（或 /reload），/mdoc 就能用了
 #    以后想更新到最新模板：mdoc install-skill --force
 ```
+
+Windows（PowerShell）：
+
+```powershell
+# ① 安装命令（从 GitHub 开源仓库装）
+git clone https://github.com/sanya2485/mdoc.git
+cd mdoc
+py -m pip install -e .
+
+# ② 建库：目录 + 索引 + 配置 + skill 模板 SKILL.md 一次到位，并注册进用户级配置（任意目录可用）
+mdoc init ~/mdoc-docs
+
+# ③ 装斜杠命令：skill 模板装到 Claude Code 技能目录（~/.claude/skills/mdoc/）
+mdoc install-skill
+#    重启 Claude Code（或 /reload），/mdoc 就能用了
+#    以后想更新到最新模板：mdoc install-skill --force
+```
+
+> 💡 统一用 `python3 -m pip`（macOS/Linux）或 `py -m pip`（Windows），避免裸 `pip` 绑错 Python。Linux 系统 Python（Ubuntu 23+ / Debian 12+）若报 `error: externally-managed-environment`，先建虚拟环境再装：`python3 -m venv .venv && source .venv/bin/activate && pip install -e .`。Windows 装完若找不到 `mdoc` 命令：把 Python 的 Scripts 目录加入 PATH 后重开终端。
 
 > 不想要斜杠命令，只想在终端用 `mdoc` 命令也一样，见 §5。
 
