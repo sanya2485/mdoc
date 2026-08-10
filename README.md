@@ -11,7 +11,10 @@
 ## 安装与快速开始
 
 ```bash
-# 分发：安装已构建的 wheel（推荐）
+# 开源公众：clone 源码后直接装（无需 wheel）
+git clone https://github.com/sanya2485/mdoc.git && cd mdoc && pip install -e .
+
+# 分发：安装已构建的 wheel（或 python -m build 自建）
 pip install dist/mdoc-0.1.0-py3-none-any.whl
 
 # 开发：源码树内可编辑安装（提供 `mdoc` 命令）
