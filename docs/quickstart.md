@@ -16,8 +16,10 @@
 ## 2. 三步装上
 
 ```bash
-# ① 安装命令（拿到 wheel 后）
-pip install dist/mdoc-0.1.0-py3-none-any.whl
+# ① 安装命令（从 GitHub 开源仓库装）
+git clone https://github.com/sanya2485/mdoc.git
+cd mdoc
+pip install -e .
 
 # ② 建库：目录 + 索引 + 配置 + skill 模板 SKILL.md 一次到位
 mdoc init ~/mdoc-docs
@@ -35,13 +37,13 @@ mdoc init ~/mdoc-docs
 
 ```text
 请帮我安装并配置 /mdoc（修复方案文档管理系统）：
-1. 执行 `pip install dist/mdoc-0.1.0-py3-none-any.whl` 安装 mdoc 命令；
+1. 执行 `git clone https://github.com/sanya2485/mdoc.git && cd mdoc && pip install -e .` 安装 mdoc 命令；
 2. 执行 `mdoc init <我的文档目录>` 建库——自动创建目录、索引、库本地配置 .mdoc.toml，并写入 skill 模板 SKILL.md；
 3. 把 <文档目录>/SKILL.md 复制到 Claude Code 可发现的技能目录（用户级 skills/ 下建 mdoc/ 子目录），并告诉我重启 Claude Code（或 /reload）让技能生效。
 完成后运行 `mdoc --help` 验证，把命令输出和文档库目录告诉我。
 ```
 
-> 提示词里的 `<我的文档目录>` 换成你自己的路径；wheel 在 `dist/` 下（还没有就运行 `python -m build --wheel` 构建）。
+> 提示词里的 `<我的文档目录>` 换成你自己的路径，例如 `~/mdoc-docs`。
 
 > 💡 **维护者自用渠道**：作者在私有 index（`https://www.sanyablog.cn/pypi/simple/`，pypiserver + htpasswd 认证）做多机分发，不对外开放注册。一般用户请用 `git clone` + `pip install -e .` 或自建 wheel，无需申请账密。详见 [README「作者分发渠道」](../README.md)。
 
