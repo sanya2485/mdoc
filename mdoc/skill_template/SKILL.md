@@ -102,6 +102,7 @@ metadata:
 
 > 调用形式：`/mdoc` + 参数子命令（空格分隔，如 `/mdoc -u <参考名>`）；裸 `/mdoc` 默认搜索。
 > 命令一律跑 `mdoc ...`，解析输出（`--json` 下 stdout 只有一条 JSON）。列表/搜索/读取**直接采用命令输出**，不得自行枚举文件。
+> **`/mdoc --help`（或 `-h`）** → 展示 §4 命令速查表；CLI 细节跑 `mdoc --help` / `mdoc <子命令> --help`。**`/mdoc --version`** → 跑 `mdoc --version`。
 
 ### 2.1 裸 `/mdoc` — 默认搜索 + 上下文感知
 

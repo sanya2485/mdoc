@@ -41,6 +41,7 @@ mdoc init ~/mdoc-docs
 | `/mdoc -c 标题` | 创建新文档 |
 | `/mdoc -u 参考名` | 更新已有文档 |
 | `/mdoc -d 参考名` | 删除文档 |
+| `/mdoc --help` | 命令速查（`-h` 同） |
 
 > 注意：参数子命令是**空格分隔**的（`/mdoc -u`），不是 `/mdoc-u`。
 
